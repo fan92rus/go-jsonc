@@ -192,10 +192,10 @@ func (l *lexer) scanNumber(start Position) token {
 		}
 	}
 	text := string(l.input[start.Offset:l.pos])
-	if hasLeadingZero(text) {
+	if err := validateJSONNumber(text); err != "" {
 		return token{
 			kind: tokError,
-			text: fmt.Sprintf("leading zero in number %q", text),
+			text: err,
 			pos:  start,
 			end:  l.tokPos(),
 		}
@@ -208,15 +208,94 @@ func (l *lexer) scanNumber(start Position) token {
 	}
 }
 
-// hasLeadingZero reports whether a JSON number string has a leading zero,
-// which is not valid in JSON except for the literal "0" itself, "0." (fraction),
-// and "0e"/"0E" (exponent).
-func hasLeadingZero(text string) bool {
-	s := text
-	if len(s) > 0 && (s[0] == '-' || s[0] == '+') {
-		s = s[1:]
+// validateJSONNumber checks whether text is a valid JSON number per RFC 8259.
+// Returns empty string for valid, or an error message for invalid.
+func validateJSONNumber(text string) string {
+	if text == "" {
+		return "empty number"
 	}
-	return len(s) >= 2 && s[0] == '0' && s[1] >= '0' && s[1] <= '9'
+	s := text
+	i := 0
+
+	// Optional leading sign
+	if s[i] == '-' || s[i] == '+' {
+		i++
+	}
+	if i >= len(s) {
+		return fmt.Sprintf("incomplete number %q", text)
+	}
+
+	// Integer part: "0" or non-zero-digit *digit
+	if !scanIntPart(s, &i) {
+		return fmt.Sprintf("invalid number %q", text)
+	}
+
+	// Optional fraction part
+	if i < len(s) && s[i] == '.' {
+		if !scanFracPart(s, &i) {
+			return fmt.Sprintf("incomplete fraction in number %q", text)
+		}
+	}
+
+	// Optional exponent part
+	if i < len(s) && (s[i] == 'e' || s[i] == 'E') {
+		if !scanExpPart(s, &i) {
+			return fmt.Sprintf("incomplete exponent in number %q", text)
+		}
+	}
+
+	if i < len(s) {
+		return fmt.Sprintf("trailing characters in number %q", text)
+	}
+	return ""
+}
+
+// scanIntPart scans the integer portion of a JSON number.
+// Expects s[*i] to be at the start of the integer part.
+// Returns false if invalid, updates *i past the scanned digits.
+// Leading zeros (e.g., "01") are rejected.
+func scanIntPart(s string, i *int) bool {
+	if s[*i] == '0' {
+		*i++
+		// Leading zero followed by another digit is not valid JSON
+		if *i < len(s) && s[*i] >= '0' && s[*i] <= '9' {
+			return false
+		}
+		return true
+	}
+	if s[*i] >= '1' && s[*i] <= '9' {
+		*i++
+		for *i < len(s) && s[*i] >= '0' && s[*i] <= '9' {
+			*i++
+		}
+		return true
+	}
+	return false
+}
+
+func scanFracPart(s string, i *int) bool {
+	*i++ // skip '.'
+	if *i >= len(s) || s[*i] < '0' || s[*i] > '9' {
+		return false
+	}
+	for *i < len(s) && s[*i] >= '0' && s[*i] <= '9' {
+		*i++
+	}
+	return true
+}
+
+func scanExpPart(s string, i *int) bool {
+	*i++ // skip 'e' or 'E'
+	if *i < len(s) && (s[*i] == '-' || s[*i] == '+') {
+		*i++
+	}
+	if *i >= len(s) || s[*i] < '0' || s[*i] > '9' {
+		return false
+	}
+	for *i < len(s) && s[*i] >= '0' && s[*i] <= '9' {
+		*i++
+	}
+	return true
 }
 
 func (l *lexer) scanKeyword(expected string, kind tokenKind, start Position) token {

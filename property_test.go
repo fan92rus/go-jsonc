@@ -626,6 +626,11 @@ func TestProperty_RejectInvalidJSON(t *testing.T) {
 		{`truee`, "unknown keyword"},
 		{`nul`, "truncated keyword"},
 		{"\x00[1]", "null byte"},
+		{`[1e]`, "incomplete exponent"},
+		{`[1.]`, "incomplete fraction"},
+		{`[1.2.3]`, "double decimal"},
+		{`[--1]`, "double minus"},
+		{`[1e--5]`, "invalid exponent sign"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -633,9 +638,12 @@ func TestProperty_RejectInvalidJSON(t *testing.T) {
 			if err == nil && doc == nil {
 				t.Fatalf("Expected error or non-nil doc for %q", tc.input)
 			}
-			// Leading-zero and unrecognized-keyword cases must have error nodes.
+			// Leading-zero, malformed-number, and unrecognized-keyword
+			// cases must have error nodes in the tree.
 			switch tc.name {
-			case "leading zero", "leading zero negative":
+			case "leading zero", "leading zero negative",
+				"incomplete exponent", "incomplete fraction",
+				"double decimal", "double minus", "invalid exponent sign":
 				if err == nil {
 					errs := doc.FindAll(KindError)
 					if len(errs) == 0 {
