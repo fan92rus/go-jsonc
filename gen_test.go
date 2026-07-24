@@ -9,25 +9,52 @@ import (
 	"pgregory.net/rapid"
 )
 
-// SampledFrom with >10 runes hits Go's variadic type inference limit so we
-// use Custom+IntRange+slice instead.
+// SampledFrom with >10 runes hits Go's variadic inference limit, so we use
+// Custom+IntRange+slice for large character sets.
 
-// lettersAZ generates a-z as runes.
+// lettersAZ generates a-z runes.
 var lettersAZ = rapid.Custom(func(t *rapid.T) rune {
-	return []rune("abcdefghijklmnopqrstuvwxyz")[rapid.IntRange(0, 25).Draw(t, "i")]
+	return []rune("abcdefghijklmnopqrstuvwxyz")[rapid.IntRange(0, 25).Draw(t, "l")]
 })
 
-// lettersAZUp generates A-Z as runes.
+// lettersAZUp generates A-Z runes.
 var lettersAZUp = rapid.Custom(func(t *rapid.T) rune {
-	return []rune("ABCDEFGHIJKLMNOPQRSTUVWXYZ")[rapid.IntRange(0, 25).Draw(t, "i")]
+	return []rune("ABCDEFGHIJKLMNOPQRSTUVWXYZ")[rapid.IntRange(0, 25).Draw(t, "u")]
 })
 
-// digitsRune generates 0-9 as runes.
+// digitsRune generates 0-9 runes.
 var digitsRune = rapid.Custom(func(t *rapid.T) rune {
-	return []rune("0123456789")[rapid.IntRange(0, 9).Draw(t, "i")]
+	return []rune("0123456789")[rapid.IntRange(0, 9).Draw(t, "d")]
 })
 
-// genJSONString generates a valid JSON string literal with surrounding quotes.
+// alnumRune combines letters + digits.
+var alnumRune = rapid.OneOf(lettersAZ, lettersAZUp, digitsRune)
+
+// spaceRune generates ' '.
+var spaceRune = rapid.Custom(func(t *rapid.T) rune {
+	return ' '
+})
+
+// punctRune generates punctuation chars.
+var punctRune = rapid.Custom(func(t *rapid.T) rune {
+	return []rune(".,!?-_")[rapid.IntRange(0, 5).Draw(t, "p")]
+})
+
+// alphaSpaceRune generates letters + space.
+var alphaSpaceRune = rapid.OneOf(lettersAZ, lettersAZUp, spaceRune)
+
+// commentSafeRune generates chars safe inside comments.
+var commentSafeRune = rapid.OneOf(lettersAZ, lettersAZUp, digitsRune,
+	rapid.Custom(func(t *rapid.T) rune {
+		return []rune(" .,;!?-_")[rapid.IntRange(0, 7).Draw(t, "c")]
+	}))
+
+// whitespaceRune generates \s \t \n \r.
+var whitespaceRune = rapid.Custom(func(t *rapid.T) rune {
+	return []rune(" \t\n\r")[rapid.IntRange(0, 3).Draw(t, "w")]
+})
+
+// genJSONString generates valid JSON string literal with surrounding quotes.
 var genJSONString = rapid.Custom(func(t *rapid.T) string {
 	s := genJSONRawString.Draw(t, "raw")
 	var b strings.Builder
@@ -63,39 +90,33 @@ var genJSONString = rapid.Custom(func(t *rapid.T) string {
 
 // genJSONRawString generates raw string content without quotes.
 var genJSONRawString = rapid.Custom(func(t *rapid.T) string {
-	mode := rapid.IntRange(0, 9).Draw(t, "mode")
-	alnum := rapid.OneOf(lettersAZ, lettersAZUp, digitsRune)
-	switch mode {
-	case 0, 1, 2, 3, 4:
-		return rapid.StringOf(alnum).Draw(t, "ascii")
-	case 5, 6:
-		punct := rapid.Custom(func(t *rapid.T) rune {
-			return []rune(".,!?-_")[rapid.IntRange(0, 5).Draw(t, "p")]
-		})
+	// Always draw at least one value before returning
+	kind := rapid.IntRange(0, 8).Draw(t, "kind")
+	switch kind {
+	case 0, 1, 2, 3:
+		return rapid.StringOf(alnumRune).Draw(t, "ascii")
+	case 4, 5:
+		return rapid.StringOf(rapid.OneOf(alphaSpaceRune, punctRune)).Draw(t, "punct")
+	case 6:
 		return rapid.StringOf(
-			rapid.OneOf(lettersAZ, spaceRune, lettersAZUp, punct)).Draw(t, "punct")
+			rapid.Custom(func(t *rapid.T) rune {
+				// Must draw at least once
+				return []rune{'α', 'β', 'γ', 'δ', 'ε', '★', '♦', '♣'}[rapid.IntRange(0, 7).Draw(t, "ui")]
+			}),
+		).Draw(t, "unicode")
 	case 7:
-		uni := rapid.Custom(func(t *rapid.T) rune {
-			return []rune{'α', 'β', 'γ', 'δ', 'ε', '★', '♦', '♣'}[rapid.IntRange(0, 7).Draw(t, "u")]
-		})
-		return rapid.StringOf(uni).Draw(t, "unicode")
+		return rapid.StringOf(
+			rapid.Custom(func(t *rapid.T) rune {
+				return []rune{'"', '\\', '\b', '\f', '\n', '\r', '\t', 'a', 'b', 'c', ' '}[rapid.IntRange(0, 10).Draw(t, "si")]
+			}),
+		).Draw(t, "specials")
 	case 8:
-		spec := rapid.Custom(func(t *rapid.T) rune {
-			return []rune{'"', '\\', '\b', '\f', '\n', '\r', '\t', 'a', 'b', 'c', ' '}[rapid.IntRange(0, 10).Draw(t, "s")]
-		})
-		return rapid.StringOf(spec).Draw(t, "specials")
-	case 9:
-		return ""
+		return "" // empty string — draws were already consumed by "kind"
 	}
 	return ""
 })
 
-// spaceRune generates a single space.
-var spaceRune = rapid.Custom(func(t *rapid.T) rune {
-	return ' '
-})
-
-// genJSONNumber generates a valid JSON number literal.
+// genJSONNumber generates valid JSON number literal.
 var genJSONNumber = rapid.Custom(func(t *rapid.T) string {
 	kind := rapid.IntRange(0, 6).Draw(t, "numKind")
 	neg := rapid.Bool().Draw(t, "neg")
@@ -151,32 +172,21 @@ var genJSONNumber = rapid.Custom(func(t *rapid.T) string {
 	return "0"
 })
 
-// whitespaceRunes contains space, tab, newline, carriage return.
-var whitespaceRunes = rapid.Custom(func(t *rapid.T) rune {
-	return []rune(" \t\n\r")[rapid.IntRange(0, 3).Draw(t, "ws")]
-})
-
-// genWhitespace generates spaces, tabs, newlines.
+// genWhitespace generates space/tab/newline.
 var genWhitespace = rapid.Custom(func(t *rapid.T) string {
-	return rapid.StringOf(whitespaceRunes).Draw(t, "ws")
+	return rapid.StringOf(whitespaceRune).Draw(t, "ws")
 })
-
-// commentChars generates characters safe for comment bodies.
-var commentChars = rapid.OneOf(lettersAZ, lettersAZUp, digitsRune,
-	rapid.Custom(func(t *rapid.T) rune {
-		return []rune(" .,;!?-_")[rapid.IntRange(0, 7).Draw(t, "c")]
-	}))
 
 // genCommentText generates text safe for comment bodies.
-func genCommentText(t *rapid.T) string {
-	return rapid.StringOf(commentChars).Draw(t, "body")
-}
+var genCommentText = rapid.Custom(func(t *rapid.T) string {
+	return rapid.StringOf(commentSafeRune).Draw(t, "body")
+})
 
 // genLineComment generates // ... comments.
 var genLineComment = rapid.Custom(func(t *rapid.T) string {
 	body := ""
 	if rapid.Bool().Draw(t, "hasContent") {
-		body = " " + genCommentText(t)
+		body = " " + genCommentText.Draw(t, "body")
 	}
 	return "//" + body
 })
@@ -185,12 +195,12 @@ var genLineComment = rapid.Custom(func(t *rapid.T) string {
 var genBlockComment = rapid.Custom(func(t *rapid.T) string {
 	body := ""
 	if rapid.Bool().Draw(t, "hasContent") {
-		body = " " + genCommentText(t) + " "
+		body = " " + genCommentText.Draw(t, "body") + " "
 	}
 	return "/*" + body + "*/"
 })
 
-// genComment generates either a line or block comment.
+// genComment generates either line or block comment.
 var genComment = rapid.Custom(func(t *rapid.T) string {
 	if rapid.Bool().Draw(t, "commentMode") {
 		return genLineComment.Draw(t, "lineComment")
@@ -213,10 +223,10 @@ func genTrivia(t *rapid.T) string {
 	return ""
 }
 
-// genValue generates a JSON/JSONC value with optional surrounding trivia.
+// genValue generates a JSON value with optional trivia.
 func genValue(t *rapid.T) string {
-	preTrivia := genTrivia(t)
-	postTrivia := genTrivia(t)
+	pre := genTrivia(t)
+	post := genTrivia(t)
 	var body string
 	switch rapid.IntRange(0, 5).Draw(t, "valKind") {
 	case 0:
@@ -232,7 +242,7 @@ func genValue(t *rapid.T) string {
 	case 5:
 		body = genContainerValue(t)
 	}
-	return preTrivia + body + postTrivia
+	return pre + body + post
 }
 
 // genContainerValue generates object or array.
@@ -294,17 +304,17 @@ func genArray(t *rapid.T) string {
 	return sb.String()
 }
 
-// genFullJSONC generates a complete JSONC document with comments.
+// genFullJSONC generates a full JSONC document with comments.
 func genFullJSONC(t *rapid.T) string {
 	return genTrivia(t) + genContainerValue(t) + genTrivia(t)
 }
 
-// genJSONWithoutComments generates a JSON object without comments.
+// genJSONWithoutComments generates JSON without comments (always draws).
 var genJSONWithoutComments = rapid.Custom(func(t *rapid.T) string {
 	return genObject(t)
 })
 
-// genNumbersString generates numeric JSON values.
+// genNumbersString is a numeric JSON value generator.
 var genNumbersString = rapid.Custom(func(t *rapid.T) string {
 	return genJSONNumber.Draw(t, "num")
 })
