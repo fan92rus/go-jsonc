@@ -19,106 +19,171 @@ is preserved. This is essential for config file management where comments carry 
 
 ## Quick start
 
-### Parse JSONC with comments
+### Compact builder (recommended)
 
 ```go
 package main
 
 import (
 	"fmt"
-	"log"
-
 	"github.com/fan92rus/jsonc-cst"
 )
 
 func main() {
-	src := `{
-  // Connection settings
-  "host": "localhost",
-  "port": 8080  // default port
-}`
-	doc, err := jsonc.Parse([]byte(src))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Find all comments
-	for _, c := range doc.FindAllComments() {
-		fmt.Println("Comment:", c.Body())
-	}
-
-	// Pretty-print with two-space indent
-	formatted := jsonc.Format(doc, &jsonc.FormatOptions{Indent: "  "})
-	fmt.Println(formatted)
-
-	// Serialize back to text (preserving original formatting)
-	text := jsonc.Serialize(doc)
-	fmt.Println(text)
-}
-```
-
-### Build JSON from scratch (Builder API)
-
-```go
-package main
-
-import (
-	"fmt"
-
-	"github.com/fan92rus/jsonc-cst"
-)
-
-func main() {
-	// Build a JSONC document programmatically
-	doc := jsonc.NewObject(
-		jsonc.NewCommentLine(" Auto-generated config"),
-		jsonc.NewMember("host", jsonc.NewString("localhost")),
-		jsonc.NewMember("port", jsonc.NewNumber("8080"),
-			jsonc.NewCommentLine(" default port"),
-		),
+	// Build a config with auto-typed values
+	doc := jsonc.Object(
+		"host", "localhost",
+		"port", 8080,
+		"debug", true,
+		"tags", jsonc.Array("dev", "test"),
+		"nested", jsonc.Object("timeout", 30),
 	)
+	doc.
+		Set("mode", "strict", "override").
+		Set("port", 9090)
 
 	fmt.Println(jsonc.Format(doc, &jsonc.FormatOptions{Indent: "  "}))
-	// Output:
-	// {
-	//   // Auto-generated config
-	//   "host": "localhost",
-	//   "port": 8080 // default port
-	// }
 }
 ```
 
-### Read and edit values
+Output:
+
+```json
+{
+  "debug": true,
+  "host": "localhost",
+  "mode": "strict" // override
+  ,
+  "nested": {
+    "timeout": 30
+  },
+  "port": 9090,
+  "tags": [
+    "dev",
+    "test"
+  ]
+}
+```
+
+### Parse, edit, format
 
 ```go
 src := `{"name": "Alice", "age": 30}`
-doc, _ := jsonc.Parse([]byte(src))
+doc, _ := jsonc.Parse(src)
 
-obj := doc.FirstChild()
-for _, m := range obj.Members() {
-    fmt.Println("Key:", m.KeyNode().Value, "→ Value:", m.ValueNode().Value)
-}
+doc.Set("age", 31)        // update
+doc.Set("city", "Berlin") // add
 
-// Change a value
-obj.Members()[0].ValueNode().SetValue(`"Bob"`)
-
-fmt.Println(jsonc.Serialize(doc))
-// Output: {"name": "Bob", "age": 30}
+fmt.Println(jsonc.Format(doc, nil))
+// {
+//   "age": 31,
+//   "city": "Berlin",
+//   "name": "Alice"
+// }
 ```
 
-## API
-
-### Parsing
+### Read values
 
 ```go
-doc, err := jsonc.Parse([]byte(input))
+doc, _ := jsonc.Parse(`{"host": "local", "port": 8080}`)
+
+fmt.Println(doc.Get("host").Value)
+fmt.Println(doc.Get("port").Value)
+fmt.Println(doc.Has("host"))   // true
+fmt.Println(doc.Keys())        // [host port]
+fmt.Println(doc.Len())         // 2
+// Output:
+// "local"
+// 8080
+// true
+// [host port]
+// 2
 ```
 
-Parses a JSONC byte slice into a CST [`*Node`](https://pkg.go.dev/github.com/fan92rus/jsonc-cst#Node).
+## Building JSONC
+
+### Compact constructors (simple, recommended)
+
+`Object(key, val, key, val, ...)` wraps Go values automatically:
+
+```go
+doc := jsonc.Object(
+	"name",   "Alice",
+	"age",    30,
+	"active", true,
+	"data",   nil,         // → null
+	"tags",   jsonc.Array("a", "b"),
+	"meta",   jsonc.Object("key", "val"),
+)
+```
+
+`Array(elem, elem, ...)` does the same for arrays:
+
+```go
+arr := jsonc.Array("hello", 42, true, nil, 3.14, jsonc.Object("x", 1))
+```
+
+### Mutation (fluent)
+
+```go
+doc := jsonc.Object("a", 1)
+doc.
+	Set("b", 2).              // add member
+	Set("a", 10).             // update existing
+	Set("c", 3, "comment")    // with trailing comment
+	Delete("b")               // remove member
+
+v := doc.Get("a")            // value node for "a"
+fmt.Println(doc.Has("c"))    // true
+fmt.Println(doc.Keys())      // [a c]
+fmt.Println(doc.Len())       // 2
+```
+
+### Node tree navigation
+
+```go
+for _, key := range doc.Keys() {
+	fmt.Println("key:", key)
+}
+
+for _, val := range doc.Values() {
+	fmt.Println("value:", val.Value)
+}
+
+for _, m := range doc.Members() {
+	fmt.Println(m.KeyNode().Value, "→", m.ValueNode().Value)
+}
+```
+
+### Extended API (verbose, for fine control)
+
+When you need full control over CST node placement:
+
+```go
+obj := jsonc.NewObject(
+	jsonc.NewCommentLine(" Auto-generated"),
+	jsonc.NewMember("host", jsonc.NewString("localhost")),
+	jsonc.NewMember("port", jsonc.NewNumber("8080"),
+		jsonc.NewCommentLine(" default"),
+	),
+)
+```
+
+The compact constructors `Object()` and `Array()` are built on top of these
+primitives. Use the extended API when you need to insert comments, control
+node order explicitly, or mix in whitespace/trivia nodes.
+
+## Parsing
+
+```go
+doc, err := jsonc.Parse(src)
+```
+
+Parses a JSONC string into a CST [`*Node`](https://pkg.go.dev/github.com/fan92rus/jsonc-cst#Node).
 Valid JSON and JSONC (with `//` and `/* */` comments) are both accepted. Malformed
 input produces error nodes in the tree rather than failing catastrophically.
 
-### Serialization
+## Serialization
 
 ```go
 text := jsonc.Serialize(doc)
@@ -127,7 +192,7 @@ text := jsonc.Serialize(doc)
 Serializes a CST node tree back into source text. Produces identical output
 to the original input (lossless round-trip). Works for both JSON and JSONC.
 
-### Formatting (pretty-print)
+## Formatting (pretty-print)
 
 ```go
 formatted := jsonc.Format(doc, &jsonc.FormatOptions{Indent: "  "})
@@ -144,67 +209,38 @@ Pretty-prints a CST node tree. The `Indent` field controls indentation:
 
 Comments are preserved and properly positioned.
 
-### Builder API (programmatic creation)
+## Node tree (lower-level API)
 
-Create JSONC structures from code without parsing:
-
-```go
-// Scalar values
-s := jsonc.NewString("hello")         // → "hello"
-n := jsonc.NewNumber("42")            // → 42
-b := jsonc.NewBoolean(true)           // → true
-nu := jsonc.NewNull()                 // → null
-
-// Comments
-lc := jsonc.NewCommentLine(" note")   // → // note
-bc := jsonc.NewCommentBlock("cfg")    // → /* cfg */
-
-// Containers
-arr := jsonc.NewArray(e1, e2, e3)
-obj := jsonc.NewObject(
-    jsonc.NewMember("key", jsonc.NewString("value")),
-    jsonc.NewMember("count", jsonc.NewNumber("3")),
-)
-```
-
-### Mutation API
-
-Modify parsed or built trees:
+### Scalar nodes
 
 ```go
-node.SetValue(`"new text"`)           // Change a leaf node's text
-node.SetCommentBody("updated text")   // Update a comment's body text
-node.AppendChild(child)               // Add a child to a container
+s  := jsonc.NewString("hello")   // → "hello"
+n  := jsonc.NewNumber("42")      // → 42
+b  := jsonc.NewBoolean(true)     // → true
+nu := jsonc.NewNull()            // → null
+lc := jsonc.NewCommentLine("hi") // → // hi
+bc := jsonc.NewCommentBlock("x") // → /* x */
 ```
 
-### Node tree navigation
+### Traversal
 
 ```go
 // Walk all nodes depth-first
 doc.Walk(func(n *jsonc.Node) bool {
-    fmt.Println(n.Kind, n.Value)
-    return true
+	fmt.Println(n.Kind, n.Value)
+	return true
 })
 
-// Find nodes by type
+// Find by kind
 strings := doc.FindAll(jsonc.KindString)
-comments := doc.FindAllComments()
+comments := doc.FindAll(jsonc.KindComment)
 
-// Navigate structure
-for _, member := range obj.Members() {
-    key := member.KeyNode()
-    val := member.ValueNode()
-}
+// Container access
+for _, m := range obj.Members() { /* ... */ }
+for _, e := range arr.Elements() { /* ... */ }
 
-for _, elem := range arr.Elements() {
-    // ...
-}
-
-// Get comment body
-for _, c := range comments {
-    fmt.Println(c.Body())     // text without delimiters
-    fmt.Println(c.CommentBody) // same field, direct access
-}
+// Comment body
+fmt.Println(c.Body())        // "text without delimiters"
 ```
 
 ## Node kinds
@@ -227,14 +263,6 @@ for _, c := range comments {
 | `KindLBracket` / `KindRBracket` | `[` / `]` |
 | `KindError` | Error recovery node |
 
-## Project status
-
-**Early production** — the core API (parse, serialize, format, navigate) is
-stable and well-tested. The Builder and Mutation API (v0.2) is new and under
-active development. Backward compatibility is guaranteed within the v0.x series.
-
-See [docs/REVIEW.md](docs/REVIEW.md) for the full architectural and code review.
-
 ## Property-based testing
 
 The test suite uses [rapid](https://pgregory.net/rapid) for property-based testing
@@ -242,7 +270,7 @@ with generators that produce random valid JSONC documents. Properties tested:
 
 - ✅ All valid JSON/JSONC parses without errors
 - ✅ Comment preservation (line, block, mixed, every position)
-- ✅ Parse→serialize identity and idempotence
+- ✅ Parse → serialize identity and idempotence
 - ✅ Format preserves semantics across all indent styles
 - ✅ Format idempotence (re-formatting produces identical output)
 - ✅ Position tracking (monotonic, covers entire input)
@@ -251,6 +279,12 @@ with generators that produce random valid JSONC documents. Properties tested:
 - ✅ Trailing commas, Unicode, escape sequences, number variations
 
 Zero lint issues with 22+ linters (golangci-lint max-strict config).
+
+## Project status
+
+**Early production** — core API (parse, serialize, format, navigate) is
+stable and well-tested. The Builder and Mutation API is new and under
+active development. Backward compatibility is guaranteed within the v0.x series.
 
 ## Contributing
 
