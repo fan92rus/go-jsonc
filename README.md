@@ -19,49 +19,32 @@ is preserved. This is essential for config file management where comments carry 
 
 ## Quick start
 
-### Compact builder (recommended)
+### Build from scratch
 
 ```go
-package main
-
-import (
-	"fmt"
-	"github.com/fan92rus/jsonc-cst"
+doc := jsonc.Object(
+	"host", "localhost",
+	"port", 8080,
+	"debug", true,
+	"tags", jsonc.Array("dev", "test"),
 )
+doc.Set("mode", "strict").Set("port", 9090)
 
-func main() {
-	// Build a config with auto-typed values
-	doc := jsonc.Object(
-		"host", "localhost",
-		"port", 8080,
-		"debug", true,
-		"tags", jsonc.Array("dev", "test"),
-		"nested", jsonc.Object("timeout", 30),
-	)
-	doc.
-		Set("mode", "strict", "override").
-		Set("port", 9090)
-
-	fmt.Println(jsonc.Format(doc, &jsonc.FormatOptions{Indent: "  "}))
-}
+fmt.Println(jsonc.Format(doc, &jsonc.FormatOptions{Indent: "  "}))
 ```
 
 Output:
 
 ```json
 {
-  "debug": true,
   "host": "localhost",
-  "mode": "strict" // override
-  ,
-  "nested": {
-    "timeout": 30
-  },
   "port": 9090,
+  "debug": true,
   "tags": [
     "dev",
     "test"
-  ]
+  ],
+  "mode": "strict"
 }
 ```
 
@@ -70,39 +53,35 @@ Output:
 ```go
 src := `{"name": "Alice", "age": 30}`
 doc, _ := jsonc.Parse(src)
+obj := doc.FirstChild() // skip Document wrapper → Object
 
-doc.Set("age", 31)        // update
-doc.Set("city", "Berlin") // add
+obj.Set("age", 31)
+obj.Set("city", "Berlin")
 
-fmt.Println(jsonc.Format(doc, nil))
+fmt.Println(jsonc.Format(obj, nil))
 // {
+//   "name": "Alice",
 //   "age": 31,
-//   "city": "Berlin",
-//   "name": "Alice"
+//   "city": "Berlin"
 // }
 ```
 
-### Read values
+### Read fields
 
 ```go
 doc, _ := jsonc.Parse(`{"host": "local", "port": 8080}`)
+obj := doc.FirstChild()
 
-fmt.Println(doc.Get("host").Value)
-fmt.Println(doc.Get("port").Value)
-fmt.Println(doc.Has("host"))   // true
-fmt.Println(doc.Keys())        // [host port]
-fmt.Println(doc.Len())         // 2
-// Output:
-// "local"
-// 8080
-// true
-// [host port]
-// 2
+fmt.Println(obj.Get("host").Value)   // "local"
+fmt.Println(obj.Get("port").Value)   // 8080
+fmt.Println(obj.Has("host"))         // true
+fmt.Println(obj.Keys())              // [host port]
+fmt.Println(obj.Len())               // 2
 ```
 
 ## Building JSONC
 
-### Compact constructors (simple, recommended)
+### Compact constructors (recommended)
 
 `Object(key, val, key, val, ...)` wraps Go values automatically:
 
@@ -111,7 +90,7 @@ doc := jsonc.Object(
 	"name",   "Alice",
 	"age",    30,
 	"active", true,
-	"data",   nil,         // → null
+	"data",   nil,                     // → null
 	"tags",   jsonc.Array("a", "b"),
 	"meta",   jsonc.Object("key", "val"),
 )
@@ -123,23 +102,26 @@ doc := jsonc.Object(
 arr := jsonc.Array("hello", 42, true, nil, 3.14, jsonc.Object("x", 1))
 ```
 
-### Mutation (fluent)
+Supported value types: `string`, `int`/`int64`/`float64`, `bool`, `nil`,
+`*Node` (for pre-built or nested structures), `[]any`, `map[string]any`.
+
+### Mutation API (fluent)
 
 ```go
 doc := jsonc.Object("a", 1)
 doc.
 	Set("b", 2).              // add member
 	Set("a", 10).             // update existing
-	Set("c", 3, "comment")    // with trailing comment
+	Set("c", 3, "comment").   // with trailing comment
 	Delete("b")               // remove member
 
-v := doc.Get("a")            // value node for "a"
-fmt.Println(doc.Has("c"))    // true
-fmt.Println(doc.Keys())      // [a c]
-fmt.Println(doc.Len())       // 2
+v := doc.Get("a")             // value node for "a"
+fmt.Println(doc.Has("c"))     // true
+fmt.Println(doc.Keys())       // [a c]
+fmt.Println(doc.Len())        // 2
 ```
 
-### Node tree navigation
+### Iteration
 
 ```go
 for _, key := range doc.Keys() {
@@ -155,9 +137,9 @@ for _, m := range doc.Members() {
 }
 ```
 
-### Extended API (verbose, for fine control)
+### Extended API (verbose control)
 
-When you need full control over CST node placement:
+When you need fine control over CST node placement:
 
 ```go
 obj := jsonc.NewObject(
@@ -180,8 +162,10 @@ doc, err := jsonc.Parse(src)
 ```
 
 Parses a JSONC string into a CST [`*Node`](https://pkg.go.dev/github.com/fan92rus/jsonc-cst#Node).
-Valid JSON and JSONC (with `//` and `/* */` comments) are both accepted. Malformed
-input produces error nodes in the tree rather than failing catastrophically.
+The root is always `KindDocument`. Access the root Object via `doc.FirstChild()`.
+
+Valid JSON and JSONC (with `//` and `/* */` comments) are both accepted.
+Malformed input produces error nodes in the tree rather than failing.
 
 ## Serialization
 
@@ -189,8 +173,8 @@ input produces error nodes in the tree rather than failing catastrophically.
 text := jsonc.Serialize(doc)
 ```
 
-Serializes a CST node tree back into source text. Produces identical output
-to the original input (lossless round-trip). Works for both JSON and JSONC.
+Serializes a CST back into source text. Identical to the original input
+(**lossless round-trip**). Works for both JSON and JSONC.
 
 ## Formatting (pretty-print)
 
@@ -198,18 +182,17 @@ to the original input (lossless round-trip). Works for both JSON and JSONC.
 formatted := jsonc.Format(doc, &jsonc.FormatOptions{Indent: "  "})
 ```
 
-Pretty-prints a CST node tree. The `Indent` field controls indentation:
-
 | `Indent` | Style |
 |----------|-------|
 | `"  "` (or `nil`) | Two-space indent (default) |
 | `"\t"` | Tab indent |
 | `"    "` | Four-space indent |
-| `""` | Compact/minified (no indentation) |
+| `""` | Compact (no indentation) |
 
-Comments are preserved and properly positioned.
+Comments are preserved and properly positioned. Idempotent — re-formatting
+produces identical output.
 
-## Node tree (lower-level API)
+## Lower-level API
 
 ### Scalar nodes
 
@@ -222,25 +205,25 @@ lc := jsonc.NewCommentLine("hi") // → // hi
 bc := jsonc.NewCommentBlock("x") // → /* x */
 ```
 
-### Traversal
+### Tree traversal
 
 ```go
-// Walk all nodes depth-first
+// Walk depth-first
 doc.Walk(func(n *jsonc.Node) bool {
 	fmt.Println(n.Kind, n.Value)
 	return true
 })
 
 // Find by kind
-strings := doc.FindAll(jsonc.KindString)
-comments := doc.FindAll(jsonc.KindComment)
+strs := doc.FindAll(jsonc.KindString)
+cmts := doc.FindAll(jsonc.KindComment)
 
-// Container access
+// Container children
 for _, m := range obj.Members() { /* ... */ }
 for _, e := range arr.Elements() { /* ... */ }
 
-// Comment body
-fmt.Println(c.Body())        // "text without delimiters"
+// Comment body (without delimiters)
+fmt.Println(c.Body()) // "text without // or /* */"
 ```
 
 ## Node kinds
