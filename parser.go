@@ -526,24 +526,197 @@ func Format(doc *Node, opts *FormatOptions) string {
 		opts = &FormatOptions{Indent: "  "}
 	}
 	var sb strings.Builder
-	formatNode(doc, &sb, opts, 0)
+	fmtNode(doc, &sb, opts, 0, false, false)
 	return sb.String()
 }
 
-func formatNode(n *Node, sb *strings.Builder, opts *FormatOptions, depth int) {
+// fmtNode recursively formats a CST node.
+// inLine: if true, don't add newlines for this container.
+// afterComma: true if we just emitted a comma (no leading indent needed).
+func fmtNode(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, inLine bool, afterComma bool) {
 	if n == nil {
 		return
 	}
-	if len(n.Children) > 0 {
+
+	switch n.Kind {
+	case KindObject, KindArray:
+		fmtContainer(n, sb, opts, depth, inLine, afterComma)
+	case KindMember:
+		fmtMember(n, sb, opts, depth, afterComma)
+	case KindDocument:
+		// Document: render children directly
 		for _, c := range n.Children {
-			formatNode(c, sb, opts, depth)
+			fmtNode(c, sb, opts, depth, false, false)
 		}
-	} else {
+	case KindLBrace, KindRBrace, KindLBracket, KindRBracket:
 		sb.WriteString(n.Value)
+	case KindComma:
+		sb.WriteString(n.Value)
+	case KindColon:
+		sb.WriteString(": ")
+	case KindString, KindNumber, KindBoolean, KindNull:
+		sb.WriteString(n.Value)
+	case KindWhitespace:
+		// Strip original whitespace; the formatter manages its own spacing.
+		// Comments handle their own newlines.
+	case KindComment:
+		fmtComment(n, sb, opts, depth, afterComma)
+	case KindError:
+		sb.WriteString(n.Value)
+	default:
+		// Leaf: pass through
+		if len(n.Children) == 0 {
+			sb.WriteString(n.Value)
+		} else {
+			for _, c := range n.Children {
+				fmtNode(c, sb, opts, depth, false, false)
+			}
+		}
 	}
 }
 
-// Exported API verification
+func fmtContainer(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, inLine bool, afterComma bool) {
+	children := filterNonTriviaCST(n.Children)
+	hasMembers := false
+	hasComments := false
+	for _, c := range children {
+		if c.Kind == KindMember || c.IsValue() {
+			hasMembers = true
+		}
+	}
+	for _, c := range n.Children {
+		if c.Kind == KindComment {
+			hasComments = true
+			break
+		}
+	}
+
+	singleLine := !hasMembers || (inLine && !hasComments)
+
+	// Opening bracket
+	lb := n.FirstChildOfKind(KindLBrace, KindLBracket)
+	if lb != nil {
+		sb.WriteString(lb.Value)
+	}
+
+	if singleLine {
+		// Compact output for empty or single-line containers
+		needSep := false
+		for _, c := range n.Children {
+			switch c.Kind {
+			case KindLBrace, KindLBracket:
+				continue
+			case KindRBrace, KindRBracket:
+				continue
+			case KindWhitespace:
+				continue
+			case KindComma:
+				needSep = false // comma already includes text
+			case KindComment:
+				continue // skip comments for now
+			default:
+				if needSep {
+					sb.WriteString(", ")
+				}
+				fmtNode(c, sb, opts, depth+1, true, needSep)
+				needSep = true
+			}
+		}
+	} else {
+		// Multi-line output
+		needNewline := false
+		for _, c := range n.Children {
+			switch c.Kind {
+			case KindLBrace, KindLBracket:
+				continue
+			case KindRBrace, KindRBracket:
+				continue
+			case KindWhitespace:
+				continue
+			case KindComma:
+				sb.WriteString(",")
+				needNewline = true
+			case KindComment:
+				if needNewline {
+					needNewline = false
+				}
+				fmtComment(c, sb, opts, depth+1, !needNewline)
+				needNewline = true
+			default:
+				if needNewline {
+					sb.WriteString("\n")
+					sb.WriteString(strings.Repeat(opts.Indent, depth+1))
+					needNewline = false
+				}
+				fmtNode(c, sb, opts, depth+1, false, false)
+				needNewline = true
+			}
+		}
+		if needNewline {
+			sb.WriteString("\n")
+			sb.WriteString(strings.Repeat(opts.Indent, depth))
+		}
+	}
+
+	// Closing bracket
+	rb := n.FirstChildOfKind(KindRBrace, KindRBracket)
+	if rb != nil {
+		sb.WriteString(rb.Value)
+	}
+}
+
+func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, afterComma bool) {
+	sb.WriteString(strings.Repeat(opts.Indent, depth))
+	for _, c := range n.Children {
+		switch c.Kind {
+		case KindString:
+			sb.WriteString(c.Value)
+		case KindColon:
+			sb.WriteString(": ")
+		case KindWhitespace:
+			// skip original whitespace
+		case KindComment:
+			// inline comment after value
+		default:
+			if c.IsValue() {
+				fmtNode(c, sb, opts, depth, false, false)
+			} else if len(c.Children) > 0 {
+				fmtNode(c, sb, opts, depth, false, false)
+			} else {
+				sb.WriteString(c.Value)
+			}
+		}
+	}
+}
+
+func fmtComment(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, afterComma bool) {
+	if n.Kind != KindComment {
+		return
+	}
+	// Preserve the comment as-is but ensure proper indentation
+	if !afterComma && depth > 0 {
+		sb.WriteString("\n")
+	}
+	if !strings.HasPrefix(n.Value, "\n") {
+		sb.WriteString(strings.Repeat(opts.Indent, depth))
+	}
+	sb.WriteString(n.Value)
+	if !strings.HasSuffix(n.Value, "\n") {
+		sb.WriteString("\n")
+	}
+}
+
+func filterNonTriviaCST(nodes []*Node) []*Node {
+	var result []*Node
+	for _, n := range nodes {
+		if !n.IsTrivia() {
+			result = append(result, n)
+		}
+	}
+	return result
+}
+
+// Verify exports
 var (
 	_ = Parse
 	_ = Serialize

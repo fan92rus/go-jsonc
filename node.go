@@ -200,6 +200,21 @@ func (n *Node) FirstChild() *Node {
 	return nil
 }
 
+// FirstChildOfKind returns the first child matching any of the given kinds.
+func (n *Node) FirstChildOfKind(kinds ...NodeKind) *Node {
+	if n == nil {
+		return nil
+	}
+	for _, c := range n.Children {
+		for _, k := range kinds {
+			if c.Kind == k {
+				return c
+			}
+		}
+	}
+	return nil
+}
+
 // ValueNode returns the value child of a Member node, or nil.
 func (n *Node) ValueNode() *Node {
 	if n == nil || n.Kind != KindMember {
