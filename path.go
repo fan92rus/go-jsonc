@@ -344,8 +344,25 @@ func (n *Node) MarshalPath(path string, v any) error {
 	if len(target.Children) >= 2 {
 		lb := target.Children[0]
 		rb := target.Children[len(target.Children)-1]
+
+		topComments, bottomComments := splitObjectComments(target.Children)
+
 		obj.Children[0] = lb                   // replace with original {
 		obj.Children[len(obj.Children)-1] = rb // replace with original }
+
+		// Inject top comments after the opening brace
+		if len(topComments) > 0 {
+			head := []*Node{obj.Children[0]}
+			head = append(head, topComments...)
+			head = append(head, &Node{Kind: KindWhitespace, Value: "\n"})
+			obj.Children = append(head, obj.Children[1:]...)
+		}
+		// Inject bottom comments before the closing brace
+		if len(bottomComments) > 0 {
+			last := len(obj.Children) - 1
+			obj.Children = append(obj.Children[:last], append(bottomComments, obj.Children[last])...)
+		}
+
 		target.Children = obj.Children
 		target.Start = obj.Start
 		target.End = obj.End
@@ -359,13 +376,64 @@ func (n *Node) MarshalPath(path string, v any) error {
 	return nil
 }
 
+// splitObjectComments separates top and bottom comment groups (with their
+// preceding whitespace) from an Object's children array. Comments before
+// the first Member are "top"; comments after the last Member are "bottom".
+// Returns two slices that can be injected after { and before }.
+func splitObjectComments(children []*Node) (top, bottom []*Node) {
+	firstMember, lastMember := -1, -1
+	for i, c := range children {
+		if c.Kind == KindMember {
+			if firstMember < 0 {
+				firstMember = i
+			}
+			lastMember = i
+		}
+	}
+	for i := 1; i < len(children)-1; i++ {
+		c := children[i]
+		if c.Kind == KindComment {
+			group := []*Node{c}
+			if i > 0 && children[i-1].Kind == KindWhitespace {
+				group = append([]*Node{children[i-1]}, group...)
+			}
+			if firstMember < 0 || i < firstMember {
+				top = append(top, group...)
+			} else if i > lastMember {
+				bottom = append(bottom, group...)
+			}
+		}
+	}
+	return top, bottom
+}
+
 // serializePlainJSON serializes a CST subtree to plain JSON (no comments,
-// minimal whitespace).
+// no whitespace, minimal output).
 func serializePlainJSON(n *Node) []byte {
 	if n == nil {
 		return nil
 	}
-	return []byte(Serialize(&Node{Kind: KindDocument, Children: []*Node{n}}))
+	var sb strings.Builder
+	serializePlainNode(n, &sb)
+	return []byte(sb.String())
+}
+
+// serializePlainNode writes the plain JSON representation of a CST node,
+// skipping comment and whitespace nodes entirely.
+func serializePlainNode(n *Node, sb *strings.Builder) {
+	if n == nil {
+		return
+	}
+	if n.Kind == KindComment || n.Kind == KindWhitespace {
+		return
+	}
+	if len(n.Children) > 0 {
+		for _, c := range n.Children {
+			serializePlainNode(c, sb)
+		}
+	} else {
+		sb.WriteString(n.Value)
+	}
 }
 
 // structToObject converts a Go struct value to an Object CST node.
