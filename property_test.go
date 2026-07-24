@@ -610,24 +610,38 @@ func TestProperty_RejectTruncatedInput(t *testing.T) {
 
 // propRejectInvalidJSON asserts certain invalid inputs return error.
 func TestProperty_RejectInvalidJSON(t *testing.T) {
-	tests := []string{
-		`{a: 1}`,       // unquoted key
-		`{'a': 1}`,     // single quote
-		`[true false]`, // missing comma
-		`[1,,2]`,       // double comma
-		`{`,            // unterminated object
-		`[`,            // unterminated array
-		`01`,           // leading zero (non-zero prefixed)
-		`-01`,          // leading zero negative
-		`truee`,        // unknown keyword
-		`nul`,          // truncated keyword
-		"\x00[1]",      // null byte
+	type tc struct {
+		input string
+		name  string
+	}
+	tests := []tc{
+		{`{a: 1}`, "unquoted key"},
+		{`{'a': 1}`, "single quote"},
+		{`[true false]`, "missing comma"},
+		{`[1,,2]`, "double comma"},
+		{`{`, "unterminated object"},
+		{`[`, "unterminated array"},
+		{`01`, "leading zero"},
+		{`-01`, "leading zero negative"},
+		{`truee`, "unknown keyword"},
+		{`nul`, "truncated keyword"},
+		{"\x00[1]", "null byte"},
 	}
 	for _, tc := range tests {
-		t.Run("", func(t *testing.T) {
-			doc, err := Parse([]byte(tc))
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := Parse([]byte(tc.input))
 			if err == nil && doc == nil {
-				t.Fatalf("Expected error or non-nil doc for %q", tc)
+				t.Fatalf("Expected error or non-nil doc for %q", tc.input)
+			}
+			// Leading-zero and unrecognized-keyword cases must have error nodes.
+			switch tc.name {
+			case "leading zero", "leading zero negative":
+				if err == nil {
+					errs := doc.FindAll(KindError)
+					if len(errs) == 0 {
+						t.Fatalf("Expected error nodes for %q", tc.input)
+					}
+				}
 			}
 		})
 	}
@@ -1055,6 +1069,88 @@ func TestProperty_DeepNesting500(t *testing.T) {
 		f2 := Format(doc2, &FormatOptions{Indent: "  "})
 		if f1 != f2 {
 			t.Fatalf("Format not idempotent at depth %d\nfirst (truncated): %.100q\nsecond (truncated): %.100q", depth, f1, f2)
+		}
+	})
+}
+
+// ============================================================================
+// SECTION 12: PBT for recently found coverage gaps
+// ============================================================================
+
+// propMemberComments asserts that comments embedded inside Member nodes
+// (between key and colon, or between colon and value) survive the
+// parse → format → re-parse → re-format round-trip.
+func TestProperty_MemberCommentsPreserved(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		key := genJSONString.Draw(t, "key")
+		comment := genComment.Draw(t, "comment")
+		val := genValue(t)
+
+		// Place comment between key and colon: {"key" /* note */: val}
+		src := "{" + key + "  " + comment + "  : " + val + "}"
+		doc, err := Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("Parse error for comment-in-member %q: %v", src, err)
+		}
+		// Comments must be present in the tree after first parse
+		comments1 := doc.FindAllComments()
+		if len(comments1) == 0 {
+			t.Fatalf("No comment nodes found for %q", src)
+		}
+		// Format → re-parse must preserve comments
+		f1 := Format(doc, &FormatOptions{Indent: "  "})
+		doc2, err := Parse([]byte(f1))
+		if err != nil {
+			t.Fatalf("Format round-trip re-parse error: %v\nformatted: %q", err, f1)
+		}
+		comments2 := doc2.FindAllComments()
+		if len(comments2) == 0 {
+			t.Fatalf("Comments lost after format round-trip\ninput: %q\nformatted: %q", src, f1)
+		}
+		// Re-format is idempotent
+		f2 := Format(doc2, &FormatOptions{Indent: "  "})
+		if f1 != f2 {
+			t.Fatalf("Format not idempotent with member comment"+
+				"\n  first:  %q\n  second: %q", f1, f2)
+		}
+	})
+}
+
+// propPlusNumberRejected asserts that a leading '+' in a number produces
+// error nodes in the parse tree.
+func TestProperty_PlusNumberRejected(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.Int64Range(0, 9999).Draw(t, "n")
+		src := fmt.Sprintf("[+%d]", n)
+		doc, err := Parse([]byte(src))
+		if err != nil {
+			return // Go-level error is also acceptable
+		}
+		errs := doc.FindAll(KindError)
+		if len(errs) == 0 {
+			t.Fatalf("Expected error nodes for leading '+': %q", src)
+		}
+	})
+}
+
+// propLeadingZeroRejected asserts that a number with leading zero (e.g. 01)
+// produces error nodes in the parse tree.
+func TestProperty_LeadingZeroRejected(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// Generate a leading-zero number: 0 + (one or more digits)
+		prefix := rapid.SampledFrom([]string{"0", "-0"}).Draw(t, "prefix")
+		digits := rapid.StringOf(digitsRune).Draw(t, "digits")
+		if digits == "" {
+			return // skip — "0" or "-0" alone are valid
+		}
+		src := fmt.Sprintf("[%s%s]", prefix, digits)
+		doc, err := Parse([]byte(src))
+		if err != nil {
+			return // Go-level error is also acceptable
+		}
+		errs := doc.FindAll(KindError)
+		if len(errs) == 0 {
+			t.Fatalf("Expected error nodes for leading zero: %q", src)
 		}
 	})
 }
