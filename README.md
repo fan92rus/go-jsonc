@@ -1,14 +1,14 @@
-# jsonc-cst
+# go-jsonc
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/fan92rus/jsonc-cst.svg)](https://pkg.go.dev/github.com/fan92rus/jsonc-cst)
-[![Go Report Card](https://goreportcard.com/badge/github.com/fan92rus/jsonc-cst)](https://goreportcard.com/report/github.com/fan92rus/jsonc-cst)
-[![CI](https://github.com/fan92rus/jsonc-cst/actions/workflows/ci.yml/badge.svg)](https://github.com/fan92rus/jsonc-cst/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/fan92rus/go-jsonc.svg)](https://pkg.go.dev/github.com/fan92rus/go-jsonc)
+[![Go Report Card](https://goreportcard.com/badge/github.com/fan92rus/go-jsonc)](https://goreportcard.com/report/github.com/fan92rus/go-jsonc)
+[![CI](https://github.com/fan92rus/go-jsonc/actions/workflows/ci.yml/badge.svg)](https://github.com/fan92rus/go-jsonc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A **Concrete Syntax Tree (CST)** parser, serializer, formatter, and builder for **JSONC (JSON with Comments)** in Go.
 
 ```
-go get github.com/fan92rus/jsonc-cst
+go get github.com/fan92rus/go-jsonc
 ```
 
 ## Why CST, not AST?
@@ -161,7 +161,7 @@ node order explicitly, or mix in whitespace/trivia nodes.
 doc, err := jsonc.Parse(src)
 ```
 
-Parses a JSONC string into a CST [`*Node`](https://pkg.go.dev/github.com/fan92rus/jsonc-cst#Node).
+Parses a JSONC string into a CST [`*Node`](https://pkg.go.dev/github.com/fan92rus/go-jsonc#Node).
 The root is always `KindDocument`. Access the root Object via `doc.FirstChild()`.
 
 Valid JSON and JSONC (with `//` and `/* */` comments) are both accepted.

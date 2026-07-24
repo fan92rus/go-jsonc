@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/fan92rus/jsonc-cst"
+	"github.com/fan92rus/go-jsonc"
 )
 
 func ExampleParse() {

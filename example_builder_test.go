@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fan92rus/jsonc-cst"
+	"github.com/fan92rus/go-jsonc"
 )
 
 // Compact constructor: Object takes key-value pairs.

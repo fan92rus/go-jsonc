@@ -1,4 +1,4 @@
-module github.com/fan92rus/jsonc-cst
+module github.com/fan92rus/go-jsonc
 
 go 1.23
 

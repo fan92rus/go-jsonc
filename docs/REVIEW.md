@@ -1,7 +1,7 @@
 # Архитектурное ревью, Code Review, Production Readiness
 
 > Дата: 2025-07-24
-> Проект: github.com/fan92rus/jsonc-cst
+> Проект: github.com/fan92rus/go-jsonc
 > Ветка: master (b2ee4b3)
 > Язык: Go 1.25
 
@@ -231,7 +231,7 @@ golangci-lint run ./... > /tmp/golangci-lint-out.txt 2>&1
 пользователь не может зафиксировать версию через `go get`:
 
 ```bash
-go get github.com/fan92rus/jsonc-cst@latest
+go get github.com/fan92rus/go-jsonc@latest
 # Получит HEAD master — может сломаться в любой момент
 ```
 
