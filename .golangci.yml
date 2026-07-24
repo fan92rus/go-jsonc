@@ -2,17 +2,44 @@ version: "2"
 run:
   timeout: 2m
 linters:
+  default: none
   enable:
     - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
+    - revive
+    - misspell
+    - unconvert
+    - bodyclose
+    - noctx
+    - errname
+    - errorlint
+    - nakedret
+    - prealloc
+    - gocyclo
+    - gocognit
+    - funlen
+    - maintidx
+    - lll
+    - dupl
+    - goconst
+    - thelper
   settings:
     staticcheck:
       checks:
         - all
         - -SA1029
+    gocyclo:
+      min-complexity: 30
+    funlen:
+      lines: 100
+      statements: 60
+    gocognit:
+      min-complexity: 40
+    dupl:
+      threshold: 200
 formatters:
   enable:
     - gofmt

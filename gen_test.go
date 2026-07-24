@@ -1,3 +1,4 @@
+// Package jsonc tests.
 package jsonc
 
 import (

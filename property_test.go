@@ -26,6 +26,7 @@ func TestProperty_ParseValidJSON(t *testing.T) {
 		}
 		if doc == nil {
 			t.Fatal("Parse returned nil Document with no error")
+			return
 		}
 		if doc.Kind != KindDocument {
 			t.Fatalf("Expected KindDocument, got %s", doc.Kind)
@@ -76,7 +77,7 @@ func TestProperty_ParseNumberValues(t *testing.T) {
 				if !strings.HasPrefix(norm, "0.") && norm != "0" && norm != "" {
 					norm = strings.TrimLeft(norm, "0")
 					if norm == "" {
-						norm = "0"
+						_ = "0"
 					}
 				}
 				// Verify it parses as a float
@@ -187,6 +188,7 @@ func TestProperty_ParseObjectStructure(t *testing.T) {
 		obj := doc.FirstChild()
 		if obj == nil {
 			t.Fatalf("No children in document for %q", input)
+			return
 		}
 		if obj.Kind != KindObject {
 			t.Fatalf("Expected Object, got %s", obj.Kind)
@@ -215,6 +217,7 @@ func TestProperty_ParseObjectStructure(t *testing.T) {
 			val := m.ValueNode()
 			if key == nil {
 				t.Fatal("Member without key node")
+				return
 			}
 			if val == nil {
 				t.Fatal("Member without value node")
@@ -237,6 +240,7 @@ func TestProperty_ParseArrayStructure(t *testing.T) {
 		arr := doc.FirstChild()
 		if arr == nil {
 			t.Fatalf("No children in document for %q", input)
+			return
 		}
 		if arr.Kind != KindArray {
 			t.Fatalf("Expected Array, got %s", arr.Kind)
@@ -446,7 +450,10 @@ func validatePositions(n *Node) []string {
 	}
 	for _, c := range n.Children {
 		if c.Start.Offset < n.Start.Offset {
-			errs = append(errs, fmt.Sprintf("Child %s start %d < parent %s start %d", c.Kind, c.Start.Offset, n.Kind, n.Start.Offset))
+			errs = append(errs, fmt.Sprintf(
+				"Child %s start %d < parent %s start %d",
+				c.Kind, c.Start.Offset, n.Kind, n.Start.Offset,
+			))
 		}
 		if c.End.Offset > n.End.Offset {
 			errs = append(errs, fmt.Sprintf("Child %s end %d > parent %s end %d", c.Kind, c.End.Offset, n.Kind, n.End.Offset))
@@ -605,7 +612,7 @@ func TestProperty_RejectTruncatedInput(t *testing.T) {
 		`[`,
 	}
 	for _, tc := range tests {
-		t.Run("", func(t *testing.T) {
+		t.Run("", func(_ *testing.T) {
 			doc, err := Parse([]byte(tc))
 			if err != nil {
 				return // error is acceptable
@@ -613,8 +620,8 @@ func TestProperty_RejectTruncatedInput(t *testing.T) {
 			// Either has error nodes or the doc is incomplete
 			errs := doc.FindAll(KindError)
 			if len(errs) == 0 {
-				// If no error node, parse should have returned error
-				// Let's trust the implementation's choice
+				// No error nodes — trust the parser
+				return
 			}
 		})
 	}
@@ -740,6 +747,7 @@ func TestProperty_ParseEscapeSequences(t *testing.T) {
 		`["\u0048\u0065\u006C\u006C\u006F"]`, // unicode escapes: "Hello"
 		`["\u00E9"]`,                         // é
 		`["\u2603"]`,                         // ☃ snowman
+		`["\u0000"]`,                         // null byte
 	}
 	for _, src := range tests {
 		t.Run("", func(t *testing.T) {
@@ -781,7 +789,7 @@ func TestProperty_ParseLargeNesting(t *testing.T) {
 	actualDepth := 0
 	for _, c := range current.Children {
 		if c.Kind == KindArray {
-			current = c
+			_ = c
 			actualDepth++
 		}
 	}
@@ -966,7 +974,12 @@ func TestProperty_CanonicalNumberFormat(t *testing.T) {
 		`[1]`,
 		`[-1]`,
 		`[1.5]`,
+		`[1.0]`,  // explicit .0
+		`[-2.0]`, // negative with .0
 		`[1e10]`,
+		`[1E10]`, // uppercase E
+		`[1e+5]`, // explicit + in exponent
+		`[1e-3]`,
 		`[1.5e-3]`,
 		`[1.2345678901234567e+308]`,
 	}
@@ -982,6 +995,97 @@ func TestProperty_CanonicalNumberFormat(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ============================================================================
+// SECTION 11: Additional coverage for previously uncovered cases
+// ============================================================================
+
+// propFormatReIndentAllIndents asserts format(format(x, INDENT)) == format(x, INDENT)
+// for multiple indent strings, not just the default "  ".
+func TestProperty_FormatReIndentAllIndents(t *testing.T) {
+	indents := []string{"  ", "    ", "\t", ""}
+	rapid.Check(t, func(t *rapid.T) {
+		input := genFullJSONC(t)
+		indent := rapid.SampledFrom(indents).Draw(t, "indent")
+		doc, err := Parse([]byte(input))
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+		f1 := Format(doc, &FormatOptions{Indent: indent})
+		doc2, err := Parse([]byte(f1))
+		if err != nil {
+			t.Fatalf("First format re-parse error with indent %q: %v\nformatted: %q",
+				indent, err, f1)
+		}
+		f2 := Format(doc2, &FormatOptions{Indent: indent})
+		if f1 != f2 {
+			t.Fatalf("Format not idempotent with indent %q\ninput: %q\nfirst:  %q\nsecond: %q",
+				indent, input, f1, f2)
+		}
+	})
+}
+
+// propFormatSerializeStability asserts that Format(Serialize(doc)) == Format(doc)
+// for a property-generated document — the cross-function round-trip is stable.
+func TestProperty_FormatSerializeStability(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		input := genFullJSONC(t)
+		doc, err := Parse([]byte(input))
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+		// Serialize drops all trivia (whitespace, comments).
+		s := Serialize(doc)
+		docS, err := Parse([]byte(s))
+		if err != nil {
+			t.Fatalf("Serialize output doesn't re-parse: %v\nserialized: %q", err, s)
+		}
+		// Format both.
+		f1 := Format(doc, &FormatOptions{Indent: "  "})
+		f2 := Format(docS, &FormatOptions{Indent: "  "})
+		// They must be structurally equivalent (same values, same layout).
+		if f1 != f2 {
+			t.Fatalf("Format(Serialize(doc)) != Format(doc)"+
+				"\n  doc Format:  %q\n  ser Format:  %q\n  input: %q\n  serialized: %q",
+				f1, f2, input, s)
+		}
+	})
+}
+
+// propDeepNesting500 asserts the parser handles at least 500 levels of nesting
+// for both objects and arrays (covers stack safety).
+func TestProperty_DeepNesting500(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		depth := rapid.IntRange(500, 600).Draw(t, "depth")
+		var sb strings.Builder
+		sb.WriteString(genTrivia(t))
+		// Deeply nested arrays: [[[[...]]]]
+		for i := 0; i < depth; i++ {
+			sb.WriteString("[")
+		}
+		sb.WriteString(genValue(t))
+		for i := 0; i < depth; i++ {
+			sb.WriteString("]")
+		}
+		sb.WriteString(genTrivia(t))
+		input := sb.String()
+		doc, err := Parse([]byte(input))
+		if err != nil {
+			t.Fatalf("Parse error at depth %d: %v", depth, err)
+		}
+		// Verify formatting round-trips
+		f1 := Format(doc, &FormatOptions{Indent: "  "})
+		doc2, err := Parse([]byte(f1))
+		if err != nil {
+			t.Fatalf("Format re-parse error at depth %d: %v\nformatted (truncated): %.100q",
+				depth, err, f1)
+		}
+		f2 := Format(doc2, &FormatOptions{Indent: "  "})
+		if f1 != f2 {
+			t.Fatalf("Format not idempotent at depth %d\nfirst (truncated): %.100q\nsecond (truncated): %.100q", depth, f1, f2)
+		}
+	})
 }
 
 // Ensure all exports compile

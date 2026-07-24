@@ -1,3 +1,5 @@
+// Package jsonc provides a concrete syntax tree (CST) parser, serializer,
+// and formatter for JSONC (JSON with Comments).
 package jsonc
 
 import (
@@ -8,6 +10,7 @@ import (
 // NodeKind identifies the type of a CST node.
 type NodeKind int
 
+// Node kinds.
 const (
 	KindDocument NodeKind = iota
 	KindObject
@@ -87,6 +90,7 @@ func (p Position) String() string {
 // CommentStyle distinguishes line comments from block comments.
 type CommentStyle int
 
+// Comment styles.
 const (
 	CommentLine  CommentStyle = iota // // ...
 	CommentBlock                     // /* ... */
@@ -317,7 +321,7 @@ func (n *Node) writeString(sb *strings.Builder, indent int) {
 	if n.Kind == KindComment {
 		extra = fmt.Sprintf(" style=%d %q", n.CommentStyle, n.CommentBody)
 	}
-	sb.WriteString(fmt.Sprintf("%s%s%s @%s\n", pad, n.Kind, extra, n.Start))
+	fmt.Fprintf(sb, "%s%s%s @%s\n", pad, n.Kind, extra, n.Start)
 	for _, c := range n.Children {
 		c.writeString(sb, indent+1)
 	}

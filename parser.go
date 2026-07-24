@@ -86,10 +86,10 @@ func (l *lexer) next() token {
 	// Whitespace and comments are always scanned as separate tokens
 	for l.pos < len(l.input) {
 		c := l.peek()
-		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		switch c {
+		case ' ', '\t', '\n', '\r':
 			return l.scanWhitespace()
-		case c == '/':
+		case '/':
 			if l.pos+1 < len(l.input) {
 				next := l.input[l.pos+1]
 				if next == '/' {
@@ -330,20 +330,20 @@ func (p *parser) parseObject() *Node {
 
 	for {
 		tok := p.peek()
-		switch {
-		case tok.kind == tokEOF:
+		switch tok.kind {
+		case tokEOF:
 			obj.End = Position{Offset: len(p.lex.input)}
 			return obj
-		case tok.kind == tokRBrace:
+		case tokRBrace:
 			obj.Children = append(obj.Children, p.tokToNode(p.advance()))
 			obj.Start = obj.Children[0].Start
 			obj.End = obj.Children[len(obj.Children)-1].End
 			return obj
-		case tok.kind == tokWhitespace || tok.kind == tokCommentLine || tok.kind == tokCommentBlock:
+		case tokWhitespace, tokCommentLine, tokCommentBlock:
 			obj.Children = append(obj.Children, p.tokToNode(p.advance()))
-		case tok.kind == tokComma:
+		case tokComma:
 			obj.Children = append(obj.Children, p.tokToNode(p.advance()))
-		case tok.kind == tokString:
+		case tokString:
 			member := p.parseMember()
 			if member != nil {
 				obj.Children = append(obj.Children, member)
@@ -397,18 +397,18 @@ func (p *parser) parseArray() *Node {
 
 	for {
 		tok := p.peek()
-		switch {
-		case tok.kind == tokEOF:
+		switch tok.kind {
+		case tokEOF:
 			arr.End = Position{Offset: len(p.lex.input)}
 			return arr
-		case tok.kind == tokRBracket:
+		case tokRBracket:
 			arr.Children = append(arr.Children, p.tokToNode(p.advance()))
 			arr.Start = arr.Children[0].Start
 			arr.End = arr.Children[len(arr.Children)-1].End
 			return arr
-		case tok.kind == tokWhitespace || tok.kind == tokCommentLine || tok.kind == tokCommentBlock:
+		case tokWhitespace, tokCommentLine, tokCommentBlock:
 			arr.Children = append(arr.Children, p.tokToNode(p.advance()))
-		case tok.kind == tokComma:
+		case tokComma:
 			arr.Children = append(arr.Children, p.tokToNode(p.advance()))
 		default:
 			val := p.parseValue()
@@ -522,7 +522,7 @@ func Format(doc *Node, opts *FormatOptions) string {
 	if doc == nil {
 		return ""
 	}
-	if opts == nil || opts.Indent == "" {
+	if opts == nil {
 		opts = &FormatOptions{Indent: "  "}
 	}
 	var sb strings.Builder
@@ -575,7 +575,7 @@ func fmtNode(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, inLin
 	}
 }
 
-func fmtContainer(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, inLine bool, afterComma bool) {
+func fmtContainer(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, inLine bool, _ bool) {
 	children := filterNonTriviaCST(n.Children)
 	hasMembers := false
 	hasComments := false
@@ -591,7 +591,7 @@ func fmtContainer(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, 
 		}
 	}
 
-	singleLine := !hasMembers || (inLine && !hasComments)
+	singleLine := !hasComments && (!hasMembers || inLine)
 
 	// Opening bracket
 	lb := n.FirstChildOfKind(KindLBrace, KindLBracket)
@@ -600,62 +600,9 @@ func fmtContainer(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, 
 	}
 
 	if singleLine {
-		// Compact output for empty or single-line containers
-		needSep := false
-		for _, c := range n.Children {
-			switch c.Kind {
-			case KindLBrace, KindLBracket:
-				continue
-			case KindRBrace, KindRBracket:
-				continue
-			case KindWhitespace:
-				continue
-			case KindComma:
-				needSep = false // comma already includes text
-			case KindComment:
-				continue // skip comments for now
-			default:
-				if needSep {
-					sb.WriteString(", ")
-				}
-				fmtNode(c, sb, opts, depth+1, true, needSep)
-				needSep = true
-			}
-		}
+		fmtContainerCompact(n, sb, opts, depth)
 	} else {
-		// Multi-line output
-		needNewline := false
-		for _, c := range n.Children {
-			switch c.Kind {
-			case KindLBrace, KindLBracket:
-				continue
-			case KindRBrace, KindRBracket:
-				continue
-			case KindWhitespace:
-				continue
-			case KindComma:
-				sb.WriteString(",")
-				needNewline = true
-			case KindComment:
-				if needNewline {
-					needNewline = false
-				}
-				fmtComment(c, sb, opts, depth+1, !needNewline)
-				needNewline = true
-			default:
-				if needNewline {
-					sb.WriteString("\n")
-					sb.WriteString(strings.Repeat(opts.Indent, depth+1))
-					needNewline = false
-				}
-				fmtNode(c, sb, opts, depth+1, false, false)
-				needNewline = true
-			}
-		}
-		if needNewline {
-			sb.WriteString("\n")
-			sb.WriteString(strings.Repeat(opts.Indent, depth))
-		}
+		fmtContainerMulti(n, sb, opts, depth)
 	}
 
 	// Closing bracket
@@ -665,8 +612,80 @@ func fmtContainer(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, 
 	}
 }
 
-func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, afterComma bool) {
-	sb.WriteString(strings.Repeat(opts.Indent, depth))
+// fmtContainerCompact renders a container on a single line.
+func fmtContainerCompact(n *Node, sb *strings.Builder, opts *FormatOptions, depth int) {
+	needSep := false
+	for _, c := range n.Children {
+		switch c.Kind {
+		case KindLBrace, KindLBracket:
+			continue
+		case KindRBrace, KindRBracket:
+			continue
+		case KindWhitespace:
+			continue
+		case KindComma:
+			needSep = false // comma already includes text
+		default:
+			if needSep {
+				sb.WriteString(", ")
+			}
+			fmtNode(c, sb, opts, depth+1, true, needSep)
+			needSep = true
+		}
+	}
+}
+
+// writeIndentIfNeeded writes a newline and indentation for the multi-line
+// container path, skipping the leading newline if we are already at the
+// start of a line (avoids double newlines from line-comment trailing \n).
+func writeIndentIfNeeded(sb *strings.Builder, indent string, depth int, needNewline bool) {
+	if !needNewline {
+		return
+	}
+	atLineStart := sb.Len() > 0 && sb.String()[sb.Len()-1] == '\n'
+	if !atLineStart {
+		sb.WriteString("\n")
+	}
+	sb.WriteString(strings.Repeat(indent, depth))
+}
+
+// fmtContainerMulti renders a container with multi-line layout.
+func fmtContainerMulti(n *Node, sb *strings.Builder, opts *FormatOptions, depth int) {
+	needNewline := true
+	for _, c := range n.Children {
+		switch c.Kind {
+		case KindLBrace, KindLBracket:
+			continue
+		case KindRBrace, KindRBracket:
+			continue
+		case KindWhitespace:
+			continue
+		case KindComma:
+			sb.WriteString(",")
+			needNewline = true
+		case KindComment:
+			writeIndentIfNeeded(sb, opts.Indent, depth+1, needNewline)
+			fmtComment(c, sb, opts, depth+1, needNewline)
+			needNewline = true
+		default:
+			writeIndentIfNeeded(sb, opts.Indent, depth+1, needNewline)
+			fmtNode(c, sb, opts, depth+1, false, false)
+			needNewline = true
+		}
+	}
+	if needNewline {
+		atLineStart := sb.Len() > 0 && sb.String()[sb.Len()-1] == '\n'
+		if !atLineStart {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(strings.Repeat(opts.Indent, depth))
+	}
+}
+
+func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, _ bool) {
+	// Container calls us after writing the newline + indent (multi-line)
+	// or directly in compact mode (no indent needed). Either way, we write
+	// the key-value pair without additional indentation.
 	for _, c := range n.Children {
 		switch c.Kind {
 		case KindString:
@@ -689,19 +708,14 @@ func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, aft
 	}
 }
 
-func fmtComment(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, afterComma bool) {
+func fmtComment(n *Node, sb *strings.Builder, _ *FormatOptions, _ int, _ bool) {
 	if n.Kind != KindComment {
 		return
 	}
-	// Preserve the comment as-is but ensure proper indentation
-	if !afterComma && depth > 0 {
-		sb.WriteString("\n")
-	}
-	if !strings.HasPrefix(n.Value, "\n") {
-		sb.WriteString(strings.Repeat(opts.Indent, depth))
-	}
+	// Line comments MUST be followed by a newline in valid JSONC,
+	// otherwise the next token becomes part of the comment body.
 	sb.WriteString(n.Value)
-	if !strings.HasSuffix(n.Value, "\n") {
+	if n.CommentStyle == CommentLine && !strings.HasSuffix(n.Value, "\n") {
 		sb.WriteString("\n")
 	}
 }
