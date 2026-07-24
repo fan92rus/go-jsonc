@@ -814,6 +814,182 @@ func TestProperty_ParseComplexGeneratedJSON(t *testing.T) {
 }
 
 // ============================================================================
+// SECTION 13: Edge cases uncovered during autoresearch
+// ============================================================================
+
+// propParseEmptyInput asserts that empty and whitespace-only inputs produce
+// a valid Document node without errors, and that comment-only inputs
+// preserve the comments at the document level.
+func TestProperty_ParseEmptyInput(t *testing.T) {
+	tests := []struct {
+		input    string
+		desc     string
+		minKids  int // minimum expected children
+		hasError bool
+	}{
+		{"", "empty", 0, false},
+		{"   ", "spaces only", 1, false},
+		{"\n\t\n", "tabs and newlines", 1, false},
+		{"// just a comment\n", "line comment only", 1, false},
+		{"/**/", "block comment only", 1, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			doc, err := Parse([]byte(tc.input))
+			if tc.hasError && err == nil {
+				t.Fatalf("Expected error for %q, got nil", tc.input)
+			}
+			if !tc.hasError && err != nil {
+				t.Fatalf("Unexpected error for %q: %v", tc.input, err)
+			}
+			if doc == nil {
+				t.Fatalf("Nil Document for %q", tc.input)
+			}
+			if doc.Kind != KindDocument {
+				t.Fatalf("Expected KindDocument, got %s", doc.Kind)
+			}
+			if len(doc.Children) < tc.minKids {
+				t.Fatalf("Expected >= %d children, got %d for %q",
+					tc.minKids, len(doc.Children), tc.input)
+			}
+			// Verify comment-only inputs have comment nodes
+			if tc.minKids > 0 && tc.input != "" {
+				comments := doc.FindAllComments()
+				if tc.input != "   " && tc.input != "\n\t\n" && len(comments) == 0 {
+					t.Fatalf("Expected at least one comment node for %q", tc.input)
+				}
+			}
+		})
+	}
+}
+
+// propDocLevelCommentPBT asserts that comments placed at the document
+// level (before or after the JSON value) survive parse, format, and
+// re-parse round-trips.
+func TestProperty_DocLevelCommentPBT(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// Generate a random JSONC value
+		val := genValue(t)
+		if val == "" {
+			return
+		}
+		// Generate 0-2 random comments to place at document level
+		n := rapid.IntRange(0, 2).Draw(t, "nComments")
+		var sb strings.Builder
+		for i := 0; i < n; i++ {
+			// Each doc-level comment has its own newline
+			cmt := genComment.Draw(t, fmt.Sprintf("cmt_%d", i))
+			sb.WriteString(cmt)
+			sb.WriteString(genTrivia(t))
+		}
+		sb.WriteString(val)
+		for i := 0; i < n; i++ {
+			sb.WriteString(genTrivia(t))
+			cmt := genComment.Draw(t, fmt.Sprintf("cmt_end_%d", i))
+			sb.WriteString(cmt)
+		}
+		src := sb.String()
+
+		doc, err := Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("Parse error for doc-level comments: %v\ninput: %q", err, src)
+		}
+		if doc == nil {
+			t.Fatalf("Nil document for %q", src)
+		}
+
+		// If we generated comments, there must be at least one comment node
+		// OR at least as many children as comments + 1 (for the value)
+		if n > 0 {
+			comments := doc.FindAllComments()
+			if len(comments) == 0 {
+				t.Fatalf("No comment nodes at document level for %q", src)
+			}
+		}
+
+		// Format round-trip must preserve the structure
+		f1 := Format(doc, &FormatOptions{Indent: "  "})
+		doc2, err := Parse([]byte(f1))
+		if err != nil {
+			t.Fatalf("Format re-parse error: %v\nformatted: %q", err, f1)
+		}
+		if doc2 == nil {
+			t.Fatalf("Nil document after format round-trip for %q", src)
+		}
+		// Values must be structurally equivalent
+		if !semanticDeepEqual(doc, doc2) {
+			t.Fatalf("Structure changed after format round-trip\ninput: %q\nformatted: %q", src, f1)
+		}
+		// Format must be idempotent
+		f2 := Format(doc2, &FormatOptions{Indent: "  "})
+		if f1 != f2 {
+			t.Fatalf("Format not idempotent with doc-level comments"+
+				"\n  first:  %q\n  second: %q", f1, f2)
+		}
+	})
+}
+
+// propEmptyContainerWithComment asserts that containers with only comments
+// (no members/elements) parse and format correctly.
+// Common pattern in JSONC: { /* settings */ } or [ /* empty */ ]
+func TestProperty_EmptyContainerWithComment(t *testing.T) {
+	tests := []string{
+		`{/* comment */}`,
+		`[/* comment */]`,
+	}
+	for _, src := range tests {
+		t.Run("", func(t *testing.T) {
+			doc, err := Parse([]byte(src))
+			if err != nil {
+				t.Fatalf("Parse error for %q: %v", src, err)
+			}
+			if doc == nil {
+				t.Fatalf("Nil document for %q", src)
+			}
+			// Comments must be present
+			comments := doc.FindAllComments()
+			if len(comments) == 0 {
+				t.Fatalf("No comments found for %q", src)
+			}
+			// Format round-trip
+			f1 := Format(doc, &FormatOptions{Indent: "  "})
+			doc2, err := Parse([]byte(f1))
+			if err != nil {
+				t.Fatalf("Format re-parse error: %v\nformatted: %q", err, f1)
+			}
+			if doc2 == nil {
+				t.Fatalf("Nil document after format for %q", src)
+			}
+			// Format idempotent
+			f2 := Format(doc2, &FormatOptions{Indent: "  "})
+			if f1 != f2 {
+				t.Fatalf("Format not idempotent for %q\nfirst: %q\nsecond: %q", src, f1, f2)
+			}
+		})
+	}
+}
+
+// propErrorRecoveryPBT asserts that the parser never panics on
+// arbitrary (potentially invalid) inputs. This tests the parser's
+// resilience to real-world config file corruption or edge cases.
+func TestProperty_ErrorRecoveryPBT(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		input := rapid.SliceOfN(rapid.Byte(), 0, 512).Draw(t, "input")
+		// Must never panic, even on completely random bytes
+		doc, err := Parse(input)
+		_ = err
+		if doc != nil {
+			// Serialize must never panic (and should produce output)
+			s := Serialize(doc)
+			_ = s
+			// Format must never panic
+			f := Format(doc, &FormatOptions{Indent: "  "})
+			_ = f
+		}
+	})
+}
+
+// ============================================================================
 // HELPER: Semantic deep compare (ignores trivia)
 // ============================================================================
 

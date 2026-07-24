@@ -5,6 +5,7 @@ package jsonc
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // NodeKind identifies the type of a CST node.
@@ -220,12 +221,18 @@ func (n *Node) FirstChildOfKind(kinds ...NodeKind) *Node {
 }
 
 // ValueNode returns the value child of a Member node, or nil.
+// The value is the node after the colon — this skips the key (also a KindString).
 func (n *Node) ValueNode() *Node {
 	if n == nil || n.Kind != KindMember {
 		return nil
 	}
+	pastColon := false
 	for _, c := range n.Children {
-		if c.IsValue() {
+		if c.Kind == KindColon {
+			pastColon = true
+			continue
+		}
+		if pastColon && c.IsValue() {
 			return c
 		}
 	}
@@ -306,6 +313,203 @@ func (n *Node) String() string {
 	var sb strings.Builder
 	n.writeString(&sb, 0)
 	return sb.String()
+}
+
+// ---------------------------------------------------------------------------
+// Builder API — create and mutate CST nodes programmatically
+// ---------------------------------------------------------------------------
+
+// NewCommentLine creates a new line comment node.
+// The body is the text after "// ". Leading/trailing whitespace is trimmed
+// from the body to avoid double spacing.
+func NewCommentLine(body string) *Node {
+	body = strings.TrimSpace(body)
+	val := "//"
+	if body != "" {
+		val += " " + body
+	}
+	return &Node{
+		Kind:         KindComment,
+		Value:        val,
+		CommentStyle: CommentLine,
+		CommentBody:  body,
+	}
+}
+
+// NewCommentBlock creates a new block comment node.
+// The body is the text inside "/*  */". Leading/trailing whitespace
+// is trimmed from the body.
+func NewCommentBlock(body string) *Node {
+	body = strings.TrimSpace(body)
+	val := "/**/"
+	if body != "" {
+		val = "/* " + body + " */"
+	}
+	return &Node{
+		Kind:         KindComment,
+		Value:        val,
+		CommentStyle: CommentBlock,
+		CommentBody:  body,
+	}
+}
+
+// NewString creates a new JSON string value node.
+// The value is the raw JSON literal including surrounding quotes.
+func NewString(value string) *Node {
+	if len(value) == 0 || value[0] != '"' {
+		value = `"` + escapeJSON(value) + `"`
+	}
+	return &Node{Kind: KindString, Value: value}
+}
+
+// NewNumber creates a new JSON number value node.
+func NewNumber(value string) *Node {
+	return &Node{Kind: KindNumber, Value: value}
+}
+
+// NewBoolean creates a new JSON boolean value node.
+func NewBoolean(val bool) *Node {
+	if val {
+		return &Node{Kind: KindBoolean, Value: "true"}
+	}
+	return &Node{Kind: KindBoolean, Value: "false"}
+}
+
+// NewNull creates a new JSON null value node.
+func NewNull() *Node {
+	return &Node{Kind: KindNull, Value: "null"}
+}
+
+// NewObject creates a new JSON object node with the given children.
+// NewObject creates a new JSON object CST node.
+// Commas are automatically inserted between the children.
+func NewObject(items ...*Node) *Node {
+	nodes := make([]*Node, 0, len(items)*2+2)
+	nodes = append(nodes, &Node{Kind: KindLBrace, Value: "{"})
+	for i, item := range items {
+		if i > 0 {
+			nodes = append(nodes, &Node{Kind: KindComma, Value: ","})
+		}
+		nodes = append(nodes, item)
+	}
+	nodes = append(nodes, &Node{Kind: KindRBrace, Value: "}"})
+	return &Node{Kind: KindObject, Children: nodes}
+}
+
+// NewArray creates a new JSON array CST node.
+// Commas are automatically inserted between the elements.
+func NewArray(elements ...*Node) *Node {
+	nodes := make([]*Node, 0, len(elements)*2+2)
+	nodes = append(nodes, &Node{Kind: KindLBracket, Value: "["})
+	for i, elem := range elements {
+		if i > 0 {
+			nodes = append(nodes, &Node{Kind: KindComma, Value: ","})
+		}
+		nodes = append(nodes, elem)
+	}
+	nodes = append(nodes, &Node{Kind: KindRBracket, Value: "]"})
+	return &Node{Kind: KindArray, Children: nodes}
+}
+
+// NewMember creates a new JSON object member CST node ("key": value).
+// key must be a KindString node or a string literal.
+// val must be a value node (KindString, KindNumber, KindBoolean, KindNull,
+// KindObject, KindArray).
+// Extra nodes (comments, whitespace) are placed between the colon and the
+// value — useful for inline comments.
+func NewMember(key interface{}, val *Node, extra ...*Node) *Node {
+	var keyNode *Node
+	switch k := key.(type) {
+	case *Node:
+		keyNode = k
+	case string:
+		keyNode = NewString(k)
+	}
+	children := []*Node{keyNode}
+	children = append(children, &Node{Kind: KindColon, Value: ":"})
+	children = append(children, &Node{Kind: KindWhitespace, Value: " "})
+	children = append(children, extra...)
+	children = append(children, val)
+	return &Node{Kind: KindMember, Children: children}
+}
+
+// SetValue sets a leaf node's text value and updates the End position.
+func (n *Node) SetValue(text string) {
+	n.Value = text
+	if len(text) > 0 {
+		n.End = Position{Offset: n.Start.Offset + len(text)}
+	}
+}
+
+// SetCommentBody updates the body of a comment node and reconstructs
+// its raw text (Value). Leading/trailing whitespace is trimmed.
+func (n *Node) SetCommentBody(body string) {
+	if n.Kind != KindComment {
+		return
+	}
+	body = strings.TrimSpace(body)
+	n.CommentBody = body
+	switch n.CommentStyle {
+	case CommentLine:
+		val := "//"
+		if body != "" {
+			val += " " + body
+		}
+		n.Value = val
+	case CommentBlock:
+		val := "/**/"
+		if body != "" {
+			val = "/* " + body + " */"
+		}
+		n.Value = val
+	}
+}
+
+// AppendChild appends a child node and updates Start/End positions.
+func (n *Node) AppendChild(child *Node) {
+	n.Children = append(n.Children, child)
+	if len(n.Children) == 1 {
+		n.Start = child.Start
+	}
+	n.End = child.End
+}
+
+// Body returns the body of a comment node.
+// Returns empty string for non-comment nodes.
+func (n *Node) Body() string {
+	if n.Kind != KindComment {
+		return ""
+	}
+	return n.CommentBody
+}
+
+// escapeJSON escapes a plain string for use as a JSON string literal.
+func escapeJSON(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, sz := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == '"' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r == '\b':
+			b.WriteString("\\b")
+		case r == '\f':
+			b.WriteString("\\f")
+		case r == '\n':
+			b.WriteString("\\n")
+		case r == '\r':
+			b.WriteString("\\r")
+		case r == '\t':
+			b.WriteString("\\t")
+		case r < 0x20:
+			fmt.Fprintf(&b, "\\u%04x", r)
+		default:
+			b.WriteRune(r)
+		}
+		i += sz
+	}
+	return b.String()
 }
 
 func (n *Node) writeString(sb *strings.Builder, indent int) {

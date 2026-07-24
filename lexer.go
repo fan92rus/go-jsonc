@@ -96,7 +96,11 @@ func (l *lexer) next() token {
 					return l.scanBlockComment()
 				}
 			}
-			return l.errorToken("unexpected character '/'")
+			l.advance() // consume the '/'
+			// Return error token positioned at the consumed '/'
+			pos := l.tokPos()
+			start := Position{Offset: pos.Offset - 1, Line: pos.Line, Column: pos.Column - 1}
+			return token{kind: tokError, text: "unexpected character '/'", pos: start, end: pos}
 		default:
 			return l.scanValueToken()
 		}
