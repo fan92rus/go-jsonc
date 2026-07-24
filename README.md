@@ -5,7 +5,8 @@
 [![CI](https://github.com/fan92rus/go-jsonc/actions/workflows/ci.yml/badge.svg)](https://github.com/fan92rus/go-jsonc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A **Concrete Syntax Tree (CST)** parser, serializer, formatter, and builder for **JSONC (JSON with Comments)** in Go.
+A **Concrete Syntax Tree (CST)** parser, serializer, formatter, and builder
+for **JSONC (JSON with Comments)** in Go.
 
 ```
 go get github.com/fan92rus/go-jsonc
@@ -13,13 +14,16 @@ go get github.com/fan92rus/go-jsonc
 
 ## Why CST, not AST?
 
-A CST preserves **everything** — every comment, every space, every formatting choice.
-When you parse a file, edit a comment, and serialize it back, the original formatting
-is preserved. This is essential for config file management where comments carry meaning.
+A CST preserves **everything** — every comment, every space, every formatting
+choice. When you parse a file, edit a value, and serialize it back, the
+original formatting and comments are preserved. This is essential for config
+file management where comments carry meaning.
+
+---
 
 ## Quick start
 
-### Build from scratch
+### Build JSONC from scratch
 
 ```go
 doc := jsonc.Object(
@@ -53,7 +57,7 @@ Output:
 ```go
 src := `{"name": "Alice", "age": 30}`
 doc, _ := jsonc.Parse(src)
-obj := doc.FirstChild() // skip Document wrapper → Object
+obj := doc.Root() // skip Document → root Object
 
 obj.Set("age", 31)
 obj.Set("city", "Berlin")
@@ -66,18 +70,125 @@ fmt.Println(jsonc.Format(obj, nil))
 // }
 ```
 
-### Read fields
+---
+
+## Path navigation (dot paths)
+
+Navigate into nested objects and arrays with dot-separated paths.
+**Numeric segments index into Arrays** — ideal for real config files.
 
 ```go
-doc, _ := jsonc.Parse(`{"host": "local", "port": 8080}`)
-obj := doc.FirstChild()
+doc, _ := jsonc.Parse(`{
+  "outbounds": [
+    {"tag": "proxy-1", "port": 443, "settings": {"tls": true}},
+    {"tag": "proxy-2", "port": 8443}
+  ]
+}`)
+root := doc.Root()
 
-fmt.Println(obj.Get("host").Value)   // "local"
-fmt.Println(obj.Get("port").Value)   // 8080
-fmt.Println(obj.Has("host"))         // true
-fmt.Println(obj.Keys())              // [host port]
-fmt.Println(obj.Len())               // 2
+// Read
+fmt.Println(root.GetPath("outbounds.0.tag").Value)       // "proxy-1"
+fmt.Println(root.GetPath("outbounds.1.port").Value)       // 8443
+fmt.Println(root.GetPath("outbounds.0.settings.tls").Value) // true
+
+// Write
+root.SetPath("outbounds.0.port", 8080)
+root.SetPath("outbounds.0.settings.tls", false)
+
+// Delete
+root.DeletePath("outbounds.1")           // removes second element
+fmt.Println(root.GetPath("outbounds"))   // only proxy-1 remains
+
+// Struct bindings
+type Outbound struct {
+	Tag string `json:"tag"`
+	Port int   `json:"port"`
+}
+var ob Outbound
+root.UnmarshalPath("outbounds.0", &ob)   // → {proxy-1 8080}
 ```
+
+### Path operations cheat sheet
+
+| Expression | Result |
+|---|---|
+| `GetPath("port")` | Value of member `"port"` |
+| `GetPath("outbounds.0.tag")` | Value at Object→Array→Object→key |
+| `SetPath("timeout", 30)` | Add or update a top-level member |
+| `SetPath("items.0.port", 80)` | Replace array element's nested field |
+| `DeletePath("items.1")` | Remove an array element by index |
+| `DeletePath("feature")` | Remove a member |
+| `UnmarshalPath("outbound", &v)` | Navigate + deserialize into Go struct |
+| `MarshalPath("outbound", v)` | Serialize Go struct → replace subtree |
+
+Missing keys auto-vivify as Objects. Arrays must exist before indexing into
+them — `SetPath("items.0", val)` works when `items` is already an Array.
+
+---
+
+## File operations
+
+```go
+// Read a JSONC config file
+doc, err := jsonc.ParseFile("/opt/etc/xkeen/xray/config.json")
+
+// Navigate and modify
+doc.Root().SetPath("outbounds.0.port", 8080)
+
+// Write back (preserves comments and formatting)
+err = doc.WriteFile("/opt/etc/xkeen/xray/config.json")
+```
+
+---
+
+## Struct binding (MarshalPath / UnmarshalPath)
+
+Convert between JSONC subtrees and Go structs. The optional `jsonc` tag
+adds a line comment before the JSON member.
+
+```go
+type Config struct {
+	Host    string `json:"host"`              // required
+	Port    int    `json:"port" jsonc:"Listen port"`
+	Debug   bool   `json:"debug,omitempty"`
+}
+
+cfg := Config{Host: "localhost", Port: 9090}
+doc := jsonc.Object()
+doc.MarshalPath("server", cfg)
+
+fmt.Println(jsonc.Format(doc, &jsonc.FormatOptions{Indent: "  "}))
+```
+
+Output:
+
+```json
+{
+  "server": {
+    // Listen port
+    "port": 9090,
+    "host": "localhost"
+  }
+}
+```
+
+Read back:
+
+```go
+var got Config
+doc.UnmarshalPath("server", &got)
+fmt.Println(got.Host) // localhost
+```
+
+### jsonc tag styles
+
+| Tag | Result |
+|---|---|
+| `jsonc:"My comment"` | `// My comment` before the member |
+| `jsonc:"// Important"` | `// Important` |
+| `jsonc:"/* block */"` | `/* block */` before the member |
+
+---
 
 ## Building JSONC
 
@@ -155,6 +266,8 @@ The compact constructors `Object()` and `Array()` are built on top of these
 primitives. Use the extended API when you need to insert comments, control
 node order explicitly, or mix in whitespace/trivia nodes.
 
+---
+
 ## Parsing
 
 ```go
@@ -162,10 +275,12 @@ doc, err := jsonc.Parse(src)
 ```
 
 Parses a JSONC string into a CST [`*Node`](https://pkg.go.dev/github.com/fan92rus/go-jsonc#Node).
-The root is always `KindDocument`. Access the root Object via `doc.FirstChild()`.
+The root is always `KindDocument`. Access the root via `doc.Root()`.
 
 Valid JSON and JSONC (with `//` and `/* */` comments) are both accepted.
-Malformed input produces error nodes in the tree rather than failing.
+Invalid input produces `KindError` nodes in the tree rather than panicking.
+
+---
 
 ## Serialization
 
@@ -173,8 +288,10 @@ Malformed input produces error nodes in the tree rather than failing.
 text := jsonc.Serialize(doc)
 ```
 
-Serializes a CST back into source text. Identical to the original input
-(**lossless round-trip**). Works for both JSON and JSONC.
+Serializes a CST back into source text. **Lossless round-trip** — identical
+to the original input for valid JSON/JSONC.
+
+---
 
 ## Formatting (pretty-print)
 
@@ -187,10 +304,12 @@ formatted := jsonc.Format(doc, &jsonc.FormatOptions{Indent: "  "})
 | `"  "` (or `nil`) | Two-space indent (default) |
 | `"\t"` | Tab indent |
 | `"    "` | Four-space indent |
-| `""` | Compact (no indentation) |
+| `""` | Compact / unindented |
 
-Comments are preserved and properly positioned. Idempotent — re-formatting
+Comments are preserved and properly positioned. **Idempotent** — re-formatting
 produces identical output.
+
+---
 
 ## Lower-level API
 
@@ -208,7 +327,7 @@ bc := jsonc.NewCommentBlock("x") // → /* x */
 ### Tree traversal
 
 ```go
-// Walk depth-first
+// Walk depth-first (stop early by returning false)
 doc.Walk(func(n *jsonc.Node) bool {
 	fmt.Println(n.Kind, n.Value)
 	return true
@@ -218,13 +337,21 @@ doc.Walk(func(n *jsonc.Node) bool {
 strs := doc.FindAll(jsonc.KindString)
 cmts := doc.FindAll(jsonc.KindComment)
 
-// Container children
+// Compare subtrees
+jsonc.DeepEqual(a, b) // true if same structure ignoring positions
+```
+
+### Container children
+
+```go
 for _, m := range obj.Members() { /* ... */ }
 for _, e := range arr.Elements() { /* ... */ }
 
 // Comment body (without delimiters)
 fmt.Println(c.Body()) // "text without // or /* */"
 ```
+
+---
 
 ## Node kinds
 
@@ -246,28 +373,36 @@ fmt.Println(c.Body()) // "text without // or /* */"
 | `KindLBracket` / `KindRBracket` | `[` / `]` |
 | `KindError` | Error recovery node |
 
+---
+
 ## Property-based testing
 
 The test suite uses [rapid](https://pgregory.net/rapid) for property-based testing
 with generators that produce random valid JSONC documents. Properties tested:
 
-- ✅ All valid JSON/JSONC parses without errors
-- ✅ Comment preservation (line, block, mixed, every position)
-- ✅ Parse → serialize identity and idempotence
-- ✅ Format preserves semantics across all indent styles
-- ✅ Format idempotence (re-formatting produces identical output)
-- ✅ Position tracking (monotonic, covers entire input)
-- ✅ Deep nesting (500+ levels)
-- ✅ Error recovery (truncated input, invalid constructs)
-- ✅ Trailing commas, Unicode, escape sequences, number variations
+- All valid JSON/JSONC parses without errors
+- Comment preservation (line, block, mixed, every position)
+- Parse → serialize identity and idempotence
+- Format preserves semantics across all indent styles
+- Format idempotence (re-formatting produces identical output)
+- Path navigation get/set/delete with PBT
+- Array index access with PBT round-trip
+- Struct serialization round-trip
+- Deep nesting (500+ levels)
+- Error recovery (truncated input, random bytes)
+- Trailing commas, Unicode, escape sequences, number variations
 
-Zero lint issues with 22+ linters (golangci-lint max-strict config).
+**167+ passing tests, 0 lint issues** (golangci-lint max-strict config, 22+ linters).
+
+---
 
 ## Project status
 
-**Early production** — core API (parse, serialize, format, navigate) is
-stable and well-tested. The Builder and Mutation API is new and under
-active development. Backward compatibility is guaranteed within the v0.x series.
+**Stable v0.x** — core API (parse, serialize, format, navigation, path access,
+struct binding, file I/O) is fully implemented and well-tested. Backward
+compatibility is guaranteed within the v0.x series.
+
+---
 
 ## Contributing
 
@@ -275,6 +410,8 @@ active development. Backward compatibility is guaranteed within the v0.x series.
 2. Create a feature branch
 3. Run `go test ./...` and `golangci-lint run ./...`
 4. Submit a PR
+
+---
 
 ## License
 
