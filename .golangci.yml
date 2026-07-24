@@ -47,7 +47,3 @@ formatters:
 issues:
   max-issues-per-linter: 100
   max-same-issues: 5
-output:
-  formats:
-    colored-line-number:
-      path: stdout
