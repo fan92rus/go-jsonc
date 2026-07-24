@@ -28,7 +28,7 @@ func ExampleParse_jsonc() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	comments := doc.FindAllComments()
+	comments := doc.FindAll(jsonc.KindComment)
 	fmt.Println(len(comments))
 	// Output: 2
 }
@@ -82,7 +82,7 @@ func ExampleNewObject() {
 func ExampleNode_Body() {
 	src := `{"a": 1 /* important */}`
 	doc, _ := jsonc.Parse(src)
-	for _, c := range doc.FindAllComments() {
+	for _, c := range doc.FindAll(jsonc.KindComment) {
 		fmt.Println(c.Body())
 	}
 	// Output: important

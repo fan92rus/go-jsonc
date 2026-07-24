@@ -291,7 +291,7 @@ func TestProperty_LineCommentPreserved(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Parse error for line comment %q: %v", src, err)
 		}
-		comments := doc.FindAllComments()
+		comments := doc.FindAll(KindComment)
 		if len(comments) == 0 {
 			t.Fatalf("No comment nodes found for %q", src)
 		}
@@ -316,7 +316,7 @@ func TestProperty_BlockCommentPreserved(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Parse error for block comment %q: %v", src, err)
 		}
-		comments := doc.FindAllComments()
+		comments := doc.FindAll(KindComment)
 		if len(comments) == 0 {
 			t.Fatalf("No comment nodes found for %q", src)
 		}
@@ -342,7 +342,7 @@ func TestProperty_MixedComments(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Parse error for mixed comments: %v", err)
 		}
-		comments := doc.FindAllComments()
+		comments := doc.FindAll(KindComment)
 		if len(comments) < 2 {
 			t.Fatalf("Expected at least 2 comments, got %d: %v", len(comments), comments)
 		}
@@ -378,7 +378,7 @@ func TestProperty_CommentBodyExtracted(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
-		for _, c := range doc.FindAllComments() {
+		for _, c := range doc.FindAll(KindComment) {
 			if c.CommentStyle == CommentLine && c.CommentBody != "" {
 				// Line comment body - could have leading space
 				if !strings.Contains(c.CommentBody, strings.TrimSpace(line)) {
@@ -401,7 +401,7 @@ func TestProperty_CommentPreservedInJSONC(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
-		comments := doc.FindAllComments()
+		comments := doc.FindAll(KindComment)
 		if len(comments) < 3 {
 			t.Fatalf("Expected at least 3 comments, got %d", len(comments))
 		}
@@ -862,7 +862,7 @@ func TestProperty_ParseEmptyInput(t *testing.T) {
 			}
 			// Verify comment-only inputs have comment nodes
 			if tc.minKids > 0 && tc.input != "" {
-				comments := doc.FindAllComments()
+				comments := doc.FindAll(KindComment)
 				if tc.input != "   " && tc.input != "\n\t\n" && len(comments) == 0 {
 					t.Fatalf("Expected at least one comment node for %q", tc.input)
 				}
@@ -909,7 +909,7 @@ func TestProperty_DocLevelCommentPBT(t *testing.T) {
 		// If we generated comments, there must be at least one comment node
 		// OR at least as many children as comments + 1 (for the value)
 		if n > 0 {
-			comments := doc.FindAllComments()
+			comments := doc.FindAll(KindComment)
 			if len(comments) == 0 {
 				t.Fatalf("No comment nodes at document level for %q", src)
 			}
@@ -955,7 +955,7 @@ func TestProperty_EmptyContainerWithComment(t *testing.T) {
 				t.Fatalf("Nil document for %q", src)
 			}
 			// Comments must be present
-			comments := doc.FindAllComments()
+			comments := doc.FindAll(KindComment)
 			if len(comments) == 0 {
 				t.Fatalf("No comments found for %q", src)
 			}
@@ -1277,7 +1277,7 @@ func TestProperty_MemberCommentsPreserved(t *testing.T) {
 			t.Fatalf("Parse error for comment-in-member %q: %v", src, err)
 		}
 		// Comments must be present in the tree after first parse
-		comments1 := doc.FindAllComments()
+		comments1 := doc.FindAll(KindComment)
 		if len(comments1) == 0 {
 			t.Fatalf("No comment nodes found for %q", src)
 		}
@@ -1287,7 +1287,7 @@ func TestProperty_MemberCommentsPreserved(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Format round-trip re-parse error: %v\nformatted: %q", err, f1)
 		}
-		comments2 := doc2.FindAllComments()
+		comments2 := doc2.FindAll(KindComment)
 		if len(comments2) == 0 {
 			t.Fatalf("Comments lost after format round-trip\ninput: %q\nformatted: %q", src, f1)
 		}

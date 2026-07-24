@@ -185,11 +185,6 @@ func (n *Node) FindAll(kind NodeKind) []*Node {
 	return result
 }
 
-// FindAllComments returns all comment nodes in the tree.
-func (n *Node) FindAllComments() []*Node {
-	return n.FindAll(KindComment)
-}
-
 // FirstChild returns the first non-trivia child node, or nil.
 // In a CST, the first child may be whitespace or a comment;
 // FirstChild skips those and returns the first meaningful node.
