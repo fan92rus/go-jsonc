@@ -183,13 +183,14 @@ var genCommentText = rapid.Custom(func(t *rapid.T) string {
 	return rapid.StringOf(commentSafeRune).Draw(t, "body")
 })
 
-// genLineComment generates // ... comments.
+// genLineComment generates // ... comments (always includes trailing \n
+// to prevent the comment from consuming structural tokens on the same line).
 var genLineComment = rapid.Custom(func(t *rapid.T) string {
 	body := ""
 	if rapid.Bool().Draw(t, "hasContent") {
 		body = " " + genCommentText.Draw(t, "body")
 	}
-	return "//" + body
+	return "//" + body + "\n"
 })
 
 // genBlockComment generates /* ... */ comments.
