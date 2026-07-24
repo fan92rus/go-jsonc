@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -29,10 +30,12 @@ func (n *Node) Root() *Node {
 // GetPath navigates dot-separated keys from this node.
 //
 //	obj.GetPath("xkeen.speed_balancer.enabled")
+//	arr.GetPath("0")         // first element of array
+//	obj.GetPath("items.2")   // third element of items array
 //
-// Each segment navigates into an Object via Get(). If any intermediate
-// Object is nil or missing the segment key, returns nil.
-// For single-segment paths, behaves identically to Get().
+// Numeric segments index into Arrays via Elements(). Object segments
+// use Get() for key lookup. Mixed paths are supported.
+// Returns nil when any intermediate segment is missing or wrong type.
 func (n *Node) GetPath(path string) *Node {
 	if n == nil || path == "" {
 		return nil
@@ -40,10 +43,26 @@ func (n *Node) GetPath(path string) *Node {
 	segments := strings.Split(path, ".")
 	current := n
 	for _, seg := range segments {
-		if current == nil || current.Kind != KindObject {
+		if current == nil {
 			return nil
 		}
-		current = current.Get(seg)
+		if idx, err := strconv.Atoi(seg); err == nil {
+			// Array index access
+			if current.Kind != KindArray {
+				return nil
+			}
+			elems := current.Elements()
+			if idx < 0 || idx >= len(elems) {
+				return nil
+			}
+			current = elems[idx]
+		} else {
+			// Object key access
+			if current.Kind != KindObject {
+				return nil
+			}
+			current = current.Get(seg)
+		}
 	}
 	return current
 }
@@ -52,47 +71,144 @@ func (n *Node) GetPath(path string) *Node {
 // Objects as needed (auto-vivify).
 //
 //	obj.SetPath("xkeen.speed_balancer.enabled", true)
+//	arr.SetPath("0", "replaced")   // replace first array element
 //
-// The final segment uses Set() to update or create the member.
-// Returns the receiver for fluent chaining, or nil on error.
+// Numeric intermediate segments index into Arrays; non-numeric
+// segments access Object keys. Auto-vivify creates Objects for
+// missing keys.
+// Returns the receiver for fluent chaining.
 func (n *Node) SetPath(path string, value any) *Node {
 	if n == nil || path == "" {
 		return nil
 	}
 	segments := strings.Split(path, ".")
 	parent := n
-	for i, seg := range segments[:len(segments)-1] {
-		if parent == nil || parent.Kind != KindObject {
-			return nil
+	for _, seg := range segments[:len(segments)-1] {
+		parent = setPathNavigate(parent, seg)
+		if parent == nil {
+			return n
 		}
-		child := parent.Get(seg)
-		if child == nil || child.Kind != KindObject {
-			// Auto-vivify
-			newObj := &Node{Kind: KindObject,
-				Children: []*Node{
-					{Kind: KindLBrace, Value: "{"},
-					{Kind: KindRBrace, Value: "}"},
-				}}
-			parent.Set(seg, newObj)
-			child = newObj
+	}
+	finalSeg := segments[len(segments)-1]
+	return setPathFinal(parent, finalSeg, value)
+}
+
+// setPathNavigate resolves one intermediate path segment, auto-vivifying if needed.
+func setPathNavigate(parent *Node, seg string) *Node {
+	if parent == nil {
+		return nil
+	}
+	if idx, err := strconv.Atoi(seg); err == nil {
+		return setPathNavigateArray(parent, idx)
+	}
+	return setPathNavigateObject(parent, seg)
+}
+
+func setPathNavigateArray(parent *Node, idx int) *Node {
+	if parent.Kind != KindArray {
+		// Auto-vivify array container
+		return &Node{Kind: KindArray, Children: []*Node{
+			{Kind: KindLBracket, Value: "["},
+			{Kind: KindRBracket, Value: "]"},
+		}}
+	}
+	elems := parent.Elements()
+	if idx >= 0 && idx < len(elems) {
+		return elems[idx]
+	}
+	if idx == len(elems) {
+		empty := &Node{Kind: KindObject, Children: []*Node{
+			{Kind: KindLBrace, Value: "{"},
+			{Kind: KindRBrace, Value: "}"},
+		}}
+		parent.appendElement(empty)
+		return empty
+	}
+	return nil
+}
+
+func setPathNavigateObject(parent *Node, seg string) *Node {
+	if parent.Kind != KindObject {
+		return nil
+	}
+	child := parent.Get(seg)
+	if child == nil || (child.Kind != KindObject && child.Kind != KindArray) {
+		newObj := &Node{Kind: KindObject,
+			Children: []*Node{
+				{Kind: KindLBrace, Value: "{"},
+				{Kind: KindRBrace, Value: "}"},
+			}}
+		parent.Set(seg, newObj)
+		child = newObj
+	}
+	return child
+}
+
+// setPathFinal applies the value at the last path segment.
+func setPathFinal(parent *Node, seg string, value any) *Node {
+	if parent == nil {
+		return parent
+	}
+	if idx, err := strconv.Atoi(seg); err == nil {
+		return setPathFinalArray(parent, idx, value)
+	}
+	if parent.Kind == KindObject {
+		parent.Set(seg, value)
+	}
+	return parent
+}
+
+func setPathFinalArray(parent *Node, idx int, value any) *Node {
+	if parent.Kind != KindArray {
+		return parent
+	}
+	val := toValue(value)
+	elems := parent.Elements()
+	if idx >= 0 && idx < len(elems) {
+		replaceNode(elems[idx], val)
+	} else if idx == len(elems) {
+		parent.appendElement(val)
+	}
+	return parent
+}
+
+// replaceNode overwrites the type, value, and children of dst with src.
+func replaceNode(dst, src *Node) {
+	dst.Kind = src.Kind
+	dst.Value = src.Value
+	dst.Children = src.Children
+	dst.Start = src.Start
+	dst.End = src.End
+}
+
+// appendElement appends a value node as an Array element, inserting a
+// comma before it if the array already has elements.
+func (n *Node) appendElement(val *Node) {
+	if n.Kind == KindArray {
+		// Insert comma before closing bracket if we have existing elements
+		if len(n.Elements()) > 0 {
+			// Insert comma before the last child (the closing bracket)
+			n.Children = append(n.Children[:len(n.Children)-1], append(
+				[]*Node{{Kind: KindComma, Value: ","}},
+				n.Children[len(n.Children)-1:]...,
+			)...)
 		}
-		parent = child
-		_ = i
+		// Insert the value before the closing bracket
+		n.Children = append(n.Children[:len(n.Children)-1], append(
+			[]*Node{val},
+			n.Children[len(n.Children)-1:]...,
+		)...)
 	}
-	// Final segment — use Set on parent
-	if parent != nil && parent.Kind == KindObject {
-		parent.Set(segments[len(segments)-1], value)
-		return n
-	}
-	return n
 }
 
 // DeletePath removes a member at a dot-separated path.
 //
 //	obj.DeletePath("xkeen.speed_balancer.interval")
+//	arr.DeletePath("0")          // remove first array element
 //
-// All intermediate keys must exist and be Objects. If the path is
-// invalid (intermediate key missing, wrong type), this is a no-op.
+// Numeric segments target Array elements by index. Intermediate
+// access follows the same object/array rules as GetPath.
+// Missing or out-of-range paths are a silent no-op.
 // Returns the receiver for fluent chaining.
 func (n *Node) DeletePath(path string) *Node {
 	if n == nil || path == "" {
@@ -101,19 +217,70 @@ func (n *Node) DeletePath(path string) *Node {
 	segments := strings.Split(path, ".")
 	parent := n
 	for _, seg := range segments[:len(segments)-1] {
-		if parent == nil || parent.Kind != KindObject {
+		if parent == nil {
 			return n
 		}
-		child := parent.Get(seg)
-		if child == nil || child.Kind != KindObject {
-			return n
+		if idx, err := strconv.Atoi(seg); err == nil {
+			if parent.Kind != KindArray {
+				return n
+			}
+			elems := parent.Elements()
+			if idx < 0 || idx >= len(elems) {
+				return n
+			}
+			parent = elems[idx]
+		} else {
+			if parent.Kind != KindObject {
+				return n
+			}
+			child := parent.Get(seg)
+			if child == nil {
+				return n
+			}
+			parent = child
 		}
-		parent = child
 	}
-	if parent != nil && parent.Kind == KindObject {
-		parent.Delete(segments[len(segments)-1])
+	if parent == nil {
+		return n
+	}
+	lastSeg := segments[len(segments)-1]
+	if idx, err := strconv.Atoi(lastSeg); err == nil {
+		// Array element removal
+		if parent.Kind != KindArray {
+			return n
+		}
+		parent.deleteElement(idx)
+		return n
+	}
+	if parent.Kind == KindObject {
+		parent.Delete(lastSeg)
 	}
 	return n
+}
+
+// deleteElement removes the i-th value element from an Array.
+func (n *Node) deleteElement(idx int) {
+	if n == nil || n.Kind != KindArray {
+		return
+	}
+	elems := n.Elements()
+	if idx < 0 || idx >= len(elems) {
+		return
+	}
+	target := elems[idx]
+	// Find and remove the element node and one adjacent comma
+	for i, c := range n.Children {
+		if c == target {
+			removeStart, removeEnd := i, i+1
+			if i > 0 && n.Children[i-1].Kind == KindComma {
+				removeStart = i - 1
+			} else if i+1 < len(n.Children) && n.Children[i+1].Kind == KindComma {
+				removeEnd = i + 2
+			}
+			n.Children = append(n.Children[:removeStart], n.Children[removeEnd:]...)
+			return
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
