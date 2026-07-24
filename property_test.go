@@ -623,17 +623,17 @@ func TestProperty_RejectTruncatedInput(t *testing.T) {
 // propRejectInvalidJSON asserts certain invalid inputs return error.
 func TestProperty_RejectInvalidJSON(t *testing.T) {
 	tests := []string{
-		`{a: 1}`,         // unquoted key
-		`{'a': 1}`,       // single quote
-		`[true false]`,   // missing comma
-		`[1,,2]`,         // double comma
-		`{`,              // unterminated object
-		`[`,              // unterminated array
-		`01`,             // leading zero (non-zero prefixed)
-		`-01`,            // leading zero negative
-		`truee`,          // unknown keyword
-		`nul`,            // truncated keyword
-		"\x00[1]",        // null byte
+		`{a: 1}`,       // unquoted key
+		`{'a': 1}`,     // single quote
+		`[true false]`, // missing comma
+		`[1,,2]`,       // double comma
+		`{`,            // unterminated object
+		`[`,            // unterminated array
+		`01`,           // leading zero (non-zero prefixed)
+		`-01`,          // leading zero negative
+		`truee`,        // unknown keyword
+		`nul`,          // truncated keyword
+		"\x00[1]",      // null byte
 	}
 	for _, tc := range tests {
 		t.Run("", func(t *testing.T) {
@@ -729,17 +729,17 @@ func TestProperty_ParseUnicodeStrings(t *testing.T) {
 // propParseEscapeSequences asserts common escape sequences work.
 func TestProperty_ParseEscapeSequences(t *testing.T) {
 	tests := []string{
-		`["hello\nworld"]`,     // newline escape
-		`["hello\tworld"]`,     // tab escape
-		`["hello\"world"]`,     // quote escape
-		`["hello\\world"]`,     // backslash escape
-		`["hello\/world"]`,     // slash escape
-		`["hello\bworld"]`,     // backspace
-		`["hello\fworld"]`,     // form feed
-		`["hello\rworld"]`,     // carriage return
+		`["hello\nworld"]`,                   // newline escape
+		`["hello\tworld"]`,                   // tab escape
+		`["hello\"world"]`,                   // quote escape
+		`["hello\\world"]`,                   // backslash escape
+		`["hello\/world"]`,                   // slash escape
+		`["hello\bworld"]`,                   // backspace
+		`["hello\fworld"]`,                   // form feed
+		`["hello\rworld"]`,                   // carriage return
 		`["\u0048\u0065\u006C\u006C\u006F"]`, // unicode escapes: "Hello"
-		`["\u00E9"]`,           // é
-		`["\u2603"]`,           // ☃ snowman
+		`["\u00E9"]`,                         // é
+		`["\u2603"]`,                         // ☃ snowman
 	}
 	for _, src := range tests {
 		t.Run("", func(t *testing.T) {
