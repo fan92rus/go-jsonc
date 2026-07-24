@@ -263,48 +263,38 @@ func genMember(t *rapid.T) string {
 		genValue(t) + genTrivia(t)
 }
 
-// genObject generates { ... }.
-func genObject(t *rapid.T) string {
-	n := rapid.IntRange(0, 4).Draw(t, "numMembers")
+// genContainer generates a JSON container with the given brackets.
+// genItem produces one element.
+func genContainer(t *rapid.T, open, closeTok string, n int, genItem func(*rapid.T) string) string {
 	allowTrailing := rapid.Bool().Draw(t, "trailingComma")
 	var sb strings.Builder
 	sb.WriteString(genTrivia(t))
-	sb.WriteString("{")
+	sb.WriteString(open)
 	sb.WriteString(genTrivia(t))
 	for i := 0; i < n; i++ {
 		if i > 0 {
 			sb.WriteString(",")
 		}
-		sb.WriteString(genMember(t))
+		sb.WriteString(genItem(t))
 	}
 	if n > 0 && allowTrailing {
 		sb.WriteString(",")
 	}
 	sb.WriteString(genTrivia(t))
-	sb.WriteString("}")
+	sb.WriteString(closeTok)
 	return sb.String()
+}
+
+// genObject generates { ... }.
+func genObject(t *rapid.T) string {
+	n := rapid.IntRange(0, 4).Draw(t, "numMembers")
+	return genContainer(t, "{", "}", n, func(t *rapid.T) string { return genMember(t) })
 }
 
 // genArray generates [ ... ].
 func genArray(t *rapid.T) string {
 	n := rapid.IntRange(0, 5).Draw(t, "numElems")
-	allowTrailing := rapid.Bool().Draw(t, "trailingComma")
-	var sb strings.Builder
-	sb.WriteString(genTrivia(t))
-	sb.WriteString("[")
-	sb.WriteString(genTrivia(t))
-	for i := 0; i < n; i++ {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString(genValue(t))
-	}
-	if n > 0 && allowTrailing {
-		sb.WriteString(",")
-	}
-	sb.WriteString(genTrivia(t))
-	sb.WriteString("]")
-	return sb.String()
+	return genContainer(t, "[", "]", n, func(t *rapid.T) string { return genValue(t) })
 }
 
 // genFullJSONC generates a full JSONC document with comments.

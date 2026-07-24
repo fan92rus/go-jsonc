@@ -20,8 +20,9 @@ jobs:
           go-version: ${{ matrix.go }}
       - run: go version
       - run: go vet ./...
+      - run: go mod tidy && git diff --exit-code go.mod go.sum
       - run: go test -count=1 -timeout 120s -race ./...
-      - run: go test -count=1 -timeout 120s -v ./... 2>&1 | tail -5
+      - run: go test -count=1 -timeout 120s ./...
 
   lint:
     runs-on: ubuntu-latest

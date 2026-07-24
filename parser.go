@@ -101,10 +101,15 @@ func (l *lexer) next() token {
 			}
 			return l.errorToken("unexpected character '/'")
 		default:
-			goto scanValue
+			return l.scanValueToken()
 		}
 	}
-scanValue:
+	return token{kind: tokEOF, pos: l.tokPos(), end: l.tokPos()}
+}
+
+// scanValueToken scans a JSON value token (structural character, string,
+// number, keyword) starting from the current position.
+func (l *lexer) scanValueToken() token {
 	if l.pos >= len(l.input) {
 		return token{kind: tokEOF, pos: l.tokPos(), end: l.tokPos()}
 	}
@@ -133,7 +138,7 @@ scanValue:
 		return l.scanKeyword("false", tokFalse, start)
 	case c == 'n':
 		return l.scanKeyword("null", tokNull, start)
-	case c == '-' || c == '+' || (c >= '0' && c <= '9'):
+	case c == '-' || (c >= '0' && c <= '9'):
 		return l.scanNumber(start)
 	default:
 		return l.errorToken(fmt.Sprintf("unexpected character %q", c))
@@ -513,8 +518,21 @@ func serializeNode(n *Node, sb *strings.Builder) {
 // ---------------------------------------------------------------------------
 
 // FormatOptions controls pretty-printing behaviour.
+//
+// Indent specifies the per-level indentation string. Examples:
+//   - "  "  — two-space indent (default)
+//   - "\t"  — tab indent
+//   - "    " — four-space indent
+//   - ""    — compact/minified output (no indentation)
+//
+// Zero value (FormatOptions{}) produces compact output because Indent="" is
+// the empty string. To get the default two-space indent, pass
+//
+//	&FormatOptions{Indent: "  "}
+//
+// or nil (Format(nil) uses two spaces).
 type FormatOptions struct {
-	Indent string // indent string (default: two spaces)
+	Indent string
 }
 
 // Format pretty-prints a CST.
@@ -542,7 +560,7 @@ func fmtNode(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, inLin
 	case KindObject, KindArray:
 		fmtContainer(n, sb, opts, depth, inLine, afterComma)
 	case KindMember:
-		fmtMember(n, sb, opts, depth, afterComma)
+		fmtMember(n, sb, opts, depth, afterComma, inLine)
 	case KindDocument:
 		// Document: render children directly
 		for _, c := range n.Children {
@@ -682,7 +700,7 @@ func fmtContainerMulti(n *Node, sb *strings.Builder, opts *FormatOptions, depth 
 	}
 }
 
-func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, _ bool) {
+func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, _ bool, inLine bool) {
 	// Container calls us after writing the newline + indent (multi-line)
 	// or directly in compact mode (no indent needed). Either way, we write
 	// the key-value pair without additional indentation.
@@ -695,7 +713,15 @@ func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, _ b
 		case KindWhitespace:
 			// skip original whitespace
 		case KindComment:
-			// inline comment after value
+			if !inLine {
+				sb.WriteString("\n")
+				sb.WriteString(strings.Repeat(opts.Indent, depth))
+			}
+			fmtComment(c, sb, opts, depth, false)
+			if !inLine {
+				sb.WriteString("\n")
+				sb.WriteString(strings.Repeat(opts.Indent, depth))
+			}
 		default:
 			if c.IsValue() {
 				fmtNode(c, sb, opts, depth, false, false)
@@ -729,10 +755,3 @@ func filterNonTriviaCST(nodes []*Node) []*Node {
 	}
 	return result
 }
-
-// Verify exports
-var (
-	_ = Parse
-	_ = Serialize
-	_ = Format
-)

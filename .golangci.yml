@@ -32,14 +32,14 @@ linters:
         - all
         - -SA1029
     gocyclo:
-      min-complexity: 30
+      min-complexity: 20
     funlen:
-      lines: 100
-      statements: 60
+      lines: 60
+      statements: 40
     gocognit:
-      min-complexity: 40
+      min-complexity: 30
     dupl:
-      threshold: 200
+      threshold: 100
 formatters:
   enable:
     - gofmt
