@@ -714,12 +714,18 @@ func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, _ b
 			// skip original whitespace
 		case KindComment:
 			if !inLine {
-				sb.WriteString("\n")
+				atLineStart := sb.Len() > 0 && sb.String()[sb.Len()-1] == '\n'
+				if !atLineStart {
+					sb.WriteString("\n")
+				}
 				sb.WriteString(strings.Repeat(opts.Indent, depth))
 			}
 			fmtComment(c, sb, opts, depth, false)
 			if !inLine {
-				sb.WriteString("\n")
+				atLineStart := sb.Len() > 0 && sb.String()[sb.Len()-1] == '\n'
+				if !atLineStart {
+					sb.WriteString("\n")
+				}
 				sb.WriteString(strings.Repeat(opts.Indent, depth))
 			}
 		default:
