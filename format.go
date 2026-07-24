@@ -65,7 +65,6 @@ func fmtNode(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, inLin
 		sb.WriteString(n.Value)
 	case KindWhitespace:
 		// Strip original whitespace; the formatter manages its own spacing.
-		// Comments handle their own newlines.
 	case KindComment:
 		fmtComment(n, sb, opts, depth, afterComma)
 	case KindError:
@@ -193,7 +192,7 @@ func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, _ b
 	// Container calls us after writing the newline + indent (multi-line)
 	// or directly in compact mode (no indent needed). Either way, we write
 	// the key-value pair without additional indentation.
-	for _, c := range n.Children {
+	for idx, c := range n.Children {
 		switch c.Kind {
 		case KindString:
 			sb.WriteString(c.Value)
@@ -210,7 +209,10 @@ func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, _ b
 				sb.WriteString(strings.Repeat(opts.Indent, depth))
 			}
 			fmtComment(c, sb, opts, depth, false)
-			if !inLine {
+			// Trailing newline+indent after a comment — only if there's
+			// more real content to separate from. The closing brace /
+			// comma is handled by the parent container.
+			if !inLine && hasMoreMemberContent(n.Children[idx+1:]) {
 				atLineStart := sb.Len() > 0 && sb.String()[sb.Len()-1] == '\n'
 				if !atLineStart {
 					sb.WriteString("\n")
@@ -227,6 +229,21 @@ func fmtMember(n *Node, sb *strings.Builder, opts *FormatOptions, depth int, _ b
 			}
 		}
 	}
+}
+
+// hasMoreMemberContent returns true if the slice contains at least one node
+// that is not whitespace, a comma, or a structural bracket.
+func hasMoreMemberContent(nodes []*Node) bool {
+	for _, n := range nodes {
+		switch n.Kind {
+		case KindWhitespace, KindComma, KindLBrace, KindRBrace,
+			KindLBracket, KindRBracket:
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func fmtComment(n *Node, sb *strings.Builder, _ *FormatOptions, _ int, _ bool) {

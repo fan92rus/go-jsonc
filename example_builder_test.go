@@ -142,3 +142,67 @@ func ExampleNode_Delete_chain() {
 	// "b": 2
 	// }
 }
+
+// Len: count members in an Object.
+func ExampleNode_Len() {
+	empty := jsonc.Object()
+	single := jsonc.Object("x", 1)
+	multi := jsonc.Object("a", 1, "b", 2, "c", 3)
+	nested := jsonc.Object("inner", jsonc.Object("y", 2))
+	fmt.Println(empty.Len())
+	fmt.Println(single.Len())
+	fmt.Println(multi.Len())
+	fmt.Println(nested.Len())
+	fmt.Println((*jsonc.Node)(nil).Len())
+	fmt.Println(jsonc.Array(1, 2).Len())
+	// Output:
+	// 0
+	// 1
+	// 3
+	// 1
+	// 0
+	// 0
+}
+
+// Keys: list member keys in document order.
+func ExampleNode_Keys() {
+	doc := jsonc.Object("beta", 2, "alpha", 1, "gamma", 3)
+	fmt.Println(doc.Keys())
+	fmt.Println(jsonc.Object().Keys())
+	fmt.Println((*jsonc.Node)(nil).Keys()) // nil slice prints as []
+	fmt.Println(jsonc.Array(1, 2).Keys())  // non-Object prints as []
+	// Output:
+	// [beta alpha gamma]
+	// []
+	// []
+	// []
+}
+
+// Has: check if a key exists.
+func ExampleNode_Has() {
+	doc := jsonc.Object("x", 10, "y", 20)
+	fmt.Println(doc.Has("x"))
+	fmt.Println(doc.Has("z"))
+	fmt.Println(jsonc.Object().Has("x"))
+	fmt.Println((*jsonc.Node)(nil).Has("x"))
+	fmt.Println(jsonc.Array(1, 2).Has("x"))
+	// Output:
+	// true
+	// false
+	// false
+	// false
+	// false
+}
+
+// Values: list value nodes in document order.
+func ExampleNode_Values() {
+	doc := jsonc.Object("a", 10, "b", 20)
+	for _, v := range doc.Values() {
+		fmt.Println(v.Value)
+	}
+	fmt.Println(jsonc.Object().Values())
+	// Output:
+	// 10
+	// 20
+	// []
+}

@@ -156,6 +156,66 @@ func (n *Node) Delete(key string) *Node {
 	return n
 }
 
+// Len returns the number of members in an Object.
+// Returns 0 for nil, non-Object, or empty objects.
+func (n *Node) Len() int {
+	if n == nil || n.Kind != KindObject {
+		return 0
+	}
+	count := 0
+	for _, c := range n.Children {
+		if c.Kind == KindMember {
+			count++
+		}
+	}
+	return count
+}
+
+// Keys returns the member keys of an Object in document order.
+// Returns nil for nil, non-Object, or empty objects.
+func (n *Node) Keys() []string {
+	if n == nil || n.Kind != KindObject {
+		return nil
+	}
+	keys := make([]string, 0, n.Len())
+	for _, c := range n.Children {
+		if c.Kind == KindMember {
+			if kn := c.KeyNode(); kn != nil {
+				keys = append(keys, strings.Trim(kn.Value, `"`))
+			}
+		}
+	}
+	return keys
+}
+
+// Values returns the value nodes of an Object in document order.
+// Returns nil for nil, non-Object, or empty objects.
+func (n *Node) Values() []*Node {
+	if n == nil || n.Kind != KindObject {
+		return nil
+	}
+	vals := make([]*Node, 0, n.Len())
+	for _, c := range n.Children {
+		if c.Kind == KindMember {
+			vals = append(vals, c.ValueNode())
+		}
+	}
+	return vals
+}
+
+// Has reports whether a member with the given key exists in an Object.
+func (n *Node) Has(key string) bool {
+	if n == nil || n.Kind != KindObject {
+		return false
+	}
+	for _, c := range n.Children {
+		if c.Kind == KindMember && memberKeyEquals(c, key) {
+			return true
+		}
+	}
+	return false
+}
+
 func memberKeyEquals(n *Node, key string) bool {
 	if kn := n.KeyNode(); kn != nil {
 		return strings.Trim(kn.Value, `"`) == key

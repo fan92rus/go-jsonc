@@ -20,7 +20,7 @@ import (
 func TestProperty_ParseValidJSON(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genJSONWithoutComments.Draw(t, "jsonInput")
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error for valid JSON %q: %v", input, err)
 		}
@@ -38,7 +38,7 @@ func TestProperty_ParseValidJSON(t *testing.T) {
 func TestProperty_ParseValidJSONC(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error for JSONC %q: %v", input, err)
 		}
@@ -57,7 +57,7 @@ func TestProperty_ParseNumberValues(t *testing.T) {
 		}
 		// Wrap in an array to test as a value
 		src := "[" + input + "]"
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error for number %q: %v", input, err)
 		}
@@ -91,7 +91,7 @@ func TestProperty_ParseStringValues(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := genJSONString.Draw(t, "str")
 		src := "[" + s + "]"
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error for string %q: %v", s, err)
 		}
@@ -120,7 +120,7 @@ func TestProperty_ParseStringValues(t *testing.T) {
 func TestProperty_ParseBooleanValues(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := rapid.SampledFrom([]string{"true", "false", " null ", " true ", "false "}).Draw(t, "boolInput")
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error for %q: %v", input, err)
 		}
@@ -145,7 +145,7 @@ func TestProperty_ParseNull(t *testing.T) {
 			"{\"a\": null}",
 		}).Draw(t, "nullInput")
 
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error for %q: %v", input, err)
 		}
@@ -169,7 +169,7 @@ func TestProperty_ParseNull(t *testing.T) {
 func TestProperty_ParseObjectStructure(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genObject(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error for object %q: %v", input, err)
 		}
@@ -221,7 +221,7 @@ func TestProperty_ParseObjectStructure(t *testing.T) {
 func TestProperty_ParseArrayStructure(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genArray(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error for array %q: %v", input, err)
 		}
@@ -257,7 +257,7 @@ func TestProperty_ParseNestedStructures(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		// Build a complex nested structure manually
 		nested := `{"a": [1, {"b": {"c": [[],[1,2,3],{"d": null}]}}, {"e": true, "f": false}]}`
-		doc, err := Parse([]byte(nested))
+		doc, err := Parse(nested)
 		if err != nil {
 			t.Fatalf("Parse error for nested JSON: %v", err)
 		}
@@ -287,7 +287,7 @@ func TestProperty_LineCommentPreserved(t *testing.T) {
 		input := genLineComment.Draw(t, "comment")
 		// Wrap so it's valid JSONC
 		src := "[" + input + "\n]"
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error for line comment %q: %v", src, err)
 		}
@@ -312,7 +312,7 @@ func TestProperty_BlockCommentPreserved(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genBlockComment.Draw(t, "comment")
 		src := "[" + input + "]"
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error for block comment %q: %v", src, err)
 		}
@@ -338,7 +338,7 @@ func TestProperty_BlockCommentPreserved(t *testing.T) {
 func TestProperty_MixedComments(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		src := "[\n  // line comment\n  /* block comment */\n  // another line\n]"
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error for mixed comments: %v", err)
 		}
@@ -374,7 +374,7 @@ func TestProperty_CommentBodyExtracted(t *testing.T) {
 		block := rapid.StringOf(letter).Draw(t, "blockBody")
 
 		src := fmt.Sprintf("[//%s\n /* %s */]", line, block)
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
@@ -397,7 +397,7 @@ func TestProperty_CommentBodyExtracted(t *testing.T) {
 func TestProperty_CommentPreservedInJSONC(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		src := "{\n  // before first\n  \"a\": 1, // after value\n  /* between */\n  \"b\": 2\n}"
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
@@ -417,7 +417,7 @@ func TestProperty_CommentPreservedInJSONC(t *testing.T) {
 func TestProperty_PositionsAreMonotonic(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
@@ -456,7 +456,7 @@ func validatePositions(n *Node) []string {
 func TestProperty_PositionsCoverInput(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
@@ -480,7 +480,7 @@ func TestProperty_PositionsCoverInput(t *testing.T) {
 func TestProperty_SerializeIdentity(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genJSONWithoutComments.Draw(t, "jsonInput")
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
@@ -488,7 +488,7 @@ func TestProperty_SerializeIdentity(t *testing.T) {
 		if output != input {
 			// Allow for edge cases: normalized numbers etc.
 			// For now, check via re-parse
-			doc2, err2 := Parse([]byte(output))
+			doc2, err2 := Parse(output)
 			if err2 != nil {
 				t.Fatalf("Serialize output doesn't re-parse: %v\ninput: %q\noutput: %q", err2, input, output)
 			}
@@ -503,12 +503,12 @@ func TestProperty_SerializeIdentity(t *testing.T) {
 func TestProperty_ParseSerializeIdempotent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
-		doc1, err := Parse([]byte(input))
+		doc1, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
 		serialized := Serialize(doc1)
-		doc2, err := Parse([]byte(serialized))
+		doc2, err := Parse(serialized)
 		if err != nil {
 			t.Fatalf("Re-parse error: %v\nserialized: %q", err, serialized)
 		}
@@ -528,12 +528,12 @@ func TestProperty_ParseSerializeIdempotent(t *testing.T) {
 func TestProperty_FormatPreservesSemantics(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
 		formatted := Format(doc, &FormatOptions{Indent: "  "})
-		doc2, err := Parse([]byte(formatted))
+		doc2, err := Parse(formatted)
 		if err != nil {
 			t.Fatalf("Format output doesn't re-parse: %v\nformatted: %q", err, formatted)
 		}
@@ -549,12 +549,12 @@ func TestProperty_FormatWithDifferentIndent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
 		indent := rapid.SampledFrom([]string{"  ", "    ", "\t", ""}).Draw(t, "indent")
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
 		formatted := Format(doc, &FormatOptions{Indent: indent})
-		doc2, err := Parse([]byte(formatted))
+		doc2, err := Parse(formatted)
 		if err != nil {
 			t.Fatalf("Format with indent %q failed re-parse: %v\nformatted: %q",
 				indent, err, formatted)
@@ -569,12 +569,12 @@ func TestProperty_FormatWithDifferentIndent(t *testing.T) {
 func TestProperty_FormatReIndentIdempotent(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
 		f1 := Format(doc, &FormatOptions{Indent: "  "})
-		doc2, err := Parse([]byte(f1))
+		doc2, err := Parse(f1)
 		if err != nil {
 			t.Fatalf("First format re-parse error: %v", err)
 		}
@@ -597,7 +597,7 @@ func TestProperty_RejectTruncatedInput(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc, func(t *testing.T) {
-			doc, err := Parse([]byte(tc))
+			doc, err := Parse(tc)
 			if err == nil {
 				errs := doc.FindAll(KindError)
 				if len(errs) == 0 {
@@ -634,7 +634,7 @@ func TestProperty_RejectInvalidJSON(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			doc, err := Parse([]byte(tc.input))
+			doc, err := Parse(tc.input)
 			if err == nil && doc == nil {
 				t.Fatalf("Expected error or non-nil doc for %q", tc.input)
 			}
@@ -661,7 +661,7 @@ func TestProperty_RejectInvalidJSON(t *testing.T) {
 
 // propParseEmptyArray asserts empty arrays work.
 func TestProperty_ParseEmptyArray(t *testing.T) {
-	doc, err := Parse([]byte("[]"))
+	doc, err := Parse("[]")
 	if err != nil {
 		t.Fatalf("Parse error for empty array: %v", err)
 	}
@@ -677,7 +677,7 @@ func TestProperty_ParseEmptyArray(t *testing.T) {
 
 // propParseEmptyObject asserts empty objects work.
 func TestProperty_ParseEmptyObject(t *testing.T) {
-	doc, err := Parse([]byte("{}"))
+	doc, err := Parse("{}")
 	if err != nil {
 		t.Fatalf("Parse error for empty object: %v", err)
 	}
@@ -702,7 +702,7 @@ func TestProperty_ParseVariousWhitespace(t *testing.T) {
 		"[  1  ]",
 	}
 	for _, input := range inputs {
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error for %q: %v", input, err)
 		}
@@ -717,7 +717,7 @@ func TestProperty_ParseVariousWhitespace(t *testing.T) {
 // propParseUnicodeStrings asserts strings with Unicode are preserved.
 func TestProperty_ParseUnicodeStrings(t *testing.T) {
 	src := `["hello αβγ world 🚀"]`
-	doc, err := Parse([]byte(src))
+	doc, err := Parse(src)
 	if err != nil {
 		t.Fatalf("Parse error for unicode string: %v", err)
 	}
@@ -754,7 +754,7 @@ func TestProperty_ParseEscapeSequences(t *testing.T) {
 	}
 	for _, src := range tests {
 		t.Run("", func(t *testing.T) {
-			doc, err := Parse([]byte(src))
+			doc, err := Parse(src)
 			if err != nil {
 				t.Fatalf("Parse error for %q: %v", src, err)
 			}
@@ -783,7 +783,7 @@ func TestProperty_ParseLargeNesting(t *testing.T) {
 		sb.WriteString("]")
 	}
 	src := sb.String()
-	doc, err := Parse([]byte(src))
+	doc, err := Parse(src)
 	if err != nil {
 		t.Fatalf("Parse error for deep nesting: %v", err)
 	}
@@ -811,7 +811,7 @@ func TestProperty_ParseComplexGeneratedJSON(t *testing.T) {
 		}
 		// Wrap as an array to make it valid (multiple top-level values aren't valid JSON)
 		src := "[" + strings.Join(parts, ",") + "]"
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error for combined JSONC: %v\ninput: %q", err, src)
 		}
@@ -843,7 +843,7 @@ func TestProperty_ParseEmptyInput(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			doc, err := Parse([]byte(tc.input))
+			doc, err := Parse(tc.input)
 			if tc.hasError && err == nil {
 				t.Fatalf("Expected error for %q, got nil", tc.input)
 			}
@@ -898,7 +898,7 @@ func TestProperty_DocLevelCommentPBT(t *testing.T) {
 		}
 		src := sb.String()
 
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error for doc-level comments: %v\ninput: %q", err, src)
 		}
@@ -917,7 +917,7 @@ func TestProperty_DocLevelCommentPBT(t *testing.T) {
 
 		// Format round-trip must preserve the structure
 		f1 := Format(doc, &FormatOptions{Indent: "  "})
-		doc2, err := Parse([]byte(f1))
+		doc2, err := Parse(f1)
 		if err != nil {
 			t.Fatalf("Format re-parse error: %v\nformatted: %q", err, f1)
 		}
@@ -947,7 +947,7 @@ func TestProperty_EmptyContainerWithComment(t *testing.T) {
 	}
 	for _, src := range tests {
 		t.Run("", func(t *testing.T) {
-			doc, err := Parse([]byte(src))
+			doc, err := Parse(src)
 			if err != nil {
 				t.Fatalf("Parse error for %q: %v", src, err)
 			}
@@ -961,7 +961,7 @@ func TestProperty_EmptyContainerWithComment(t *testing.T) {
 			}
 			// Format round-trip
 			f1 := Format(doc, &FormatOptions{Indent: "  "})
-			doc2, err := Parse([]byte(f1))
+			doc2, err := Parse(f1)
 			if err != nil {
 				t.Fatalf("Format re-parse error: %v\nformatted: %q", err, f1)
 			}
@@ -984,7 +984,7 @@ func TestProperty_ErrorRecoveryPBT(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := rapid.SliceOfN(rapid.Byte(), 0, 512).Draw(t, "input")
 		// Must never panic, even on completely random bytes
-		doc, err := Parse(input)
+		doc, err := Parse(string(input))
 		_ = err
 		if doc != nil {
 			// Serialize must never panic (and should produce output)
@@ -1054,7 +1054,7 @@ func TestProperty_ParseTrailingComma(t *testing.T) {
 	}
 	for _, src := range tests {
 		t.Run("", func(t *testing.T) {
-			doc, err := Parse([]byte(src))
+			doc, err := Parse(src)
 			if err != nil {
 				t.Fatalf("Parse error for trailing comma %q: %v", src, err)
 			}
@@ -1072,7 +1072,7 @@ func TestProperty_ParseTrailingComma(t *testing.T) {
 // propWhitespacePreserved asserts that whitespace nodes are present.
 func TestProperty_WhitespacePreserved(t *testing.T) {
 	src := "  [  1  ]  "
-	doc, err := Parse([]byte(src))
+	doc, err := Parse(src)
 	if err != nil {
 		t.Fatalf("Parse error: %v", err)
 	}
@@ -1100,7 +1100,7 @@ func TestProperty_ErrorNodeForInvalid(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.msg, func(t *testing.T) {
-			doc, err := Parse([]byte(tc.input))
+			doc, err := Parse(tc.input)
 			if err == nil {
 				// Should have error nodes
 				errs := doc.FindAll(KindError)
@@ -1116,13 +1116,13 @@ func TestProperty_ErrorNodeForInvalid(t *testing.T) {
 func TestProperty_MustRoundTrip(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			return // skip inputs that genuinely can't parse
 		}
 		// Round-trip through serialize
 		serialized := Serialize(doc)
-		doc2, err2 := Parse([]byte(serialized))
+		doc2, err2 := Parse(serialized)
 		if err2 != nil {
 			t.Fatalf("Round-trip broke: %v\ninput: %q\nserialized: %q", err2, input, serialized)
 		}
@@ -1154,7 +1154,7 @@ func TestProperty_CanonicalNumberFormat(t *testing.T) {
 	}
 	for _, src := range tests {
 		t.Run(src, func(t *testing.T) {
-			doc, err := Parse([]byte(src))
+			doc, err := Parse(src)
 			if err != nil {
 				t.Fatalf("Parse error for %q: %v", src, err)
 			}
@@ -1177,12 +1177,12 @@ func TestProperty_FormatReIndentAllIndents(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
 		indent := rapid.SampledFrom(indents).Draw(t, "indent")
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
 		f1 := Format(doc, &FormatOptions{Indent: indent})
-		doc2, err := Parse([]byte(f1))
+		doc2, err := Parse(f1)
 		if err != nil {
 			t.Fatalf("First format re-parse error with indent %q: %v\nformatted: %q",
 				indent, err, f1)
@@ -1200,13 +1200,13 @@ func TestProperty_FormatReIndentAllIndents(t *testing.T) {
 func TestProperty_FormatSerializeStability(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		input := genFullJSONC(t)
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error: %v", err)
 		}
 		// Serialize drops all trivia (whitespace, comments).
 		s := Serialize(doc)
-		docS, err := Parse([]byte(s))
+		docS, err := Parse(s)
 		if err != nil {
 			t.Fatalf("Serialize output doesn't re-parse: %v\nserialized: %q", err, s)
 		}
@@ -1239,13 +1239,13 @@ func TestProperty_DeepNesting500(t *testing.T) {
 		}
 		sb.WriteString(genTrivia(t))
 		input := sb.String()
-		doc, err := Parse([]byte(input))
+		doc, err := Parse(input)
 		if err != nil {
 			t.Fatalf("Parse error at depth %d: %v", depth, err)
 		}
 		// Verify formatting round-trips
 		f1 := Format(doc, &FormatOptions{Indent: "  "})
-		doc2, err := Parse([]byte(f1))
+		doc2, err := Parse(f1)
 		if err != nil {
 			t.Fatalf("Format re-parse error at depth %d: %v\nformatted (truncated): %.100q",
 				depth, err, f1)
@@ -1272,7 +1272,7 @@ func TestProperty_MemberCommentsPreserved(t *testing.T) {
 
 		// Place comment between key and colon: {"key" /* note */: val}
 		src := "{" + key + "  " + comment + "  : " + val + "}"
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			t.Fatalf("Parse error for comment-in-member %q: %v", src, err)
 		}
@@ -1283,7 +1283,7 @@ func TestProperty_MemberCommentsPreserved(t *testing.T) {
 		}
 		// Format → re-parse must preserve comments
 		f1 := Format(doc, &FormatOptions{Indent: "  "})
-		doc2, err := Parse([]byte(f1))
+		doc2, err := Parse(f1)
 		if err != nil {
 			t.Fatalf("Format round-trip re-parse error: %v\nformatted: %q", err, f1)
 		}
@@ -1306,7 +1306,7 @@ func TestProperty_PlusNumberRejected(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		n := rapid.Int64Range(0, 9999).Draw(t, "n")
 		src := fmt.Sprintf("[+%d]", n)
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			return // Go-level error is also acceptable
 		}
@@ -1328,7 +1328,7 @@ func TestProperty_LeadingZeroRejected(t *testing.T) {
 			return // skip — "0" or "-0" alone are valid
 		}
 		src := fmt.Sprintf("[%s%s]", prefix, digits)
-		doc, err := Parse([]byte(src))
+		doc, err := Parse(src)
 		if err != nil {
 			return // Go-level error is also acceptable
 		}

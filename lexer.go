@@ -40,13 +40,13 @@ type token struct {
 // ---------------------------------------------------------------------------
 
 type lexer struct {
-	input []byte
+	input string
 	pos   int // current byte offset
 	line  int // current line (0-based)
 	col   int // current column (0-based)
 }
 
-func newLexer(input []byte) *lexer {
+func newLexer(input string) *lexer {
 	return &lexer{
 		input: input,
 		pos:   0,
@@ -158,7 +158,7 @@ func (l *lexer) scanWhitespace() token {
 	}
 	return token{
 		kind: tokWhitespace,
-		text: string(l.input[start.Offset:l.pos]),
+		text: l.input[start.Offset:l.pos],
 		pos:  start,
 		end:  l.tokPos(),
 	}
@@ -170,7 +170,7 @@ func (l *lexer) scanString(start Position) token {
 		if c == '"' {
 			return token{
 				kind: tokString,
-				text: string(l.input[start.Offset:l.pos]),
+				text: l.input[start.Offset:l.pos],
 				pos:  start,
 				end:  l.tokPos(),
 			}
@@ -191,7 +191,7 @@ func (l *lexer) scanNumber(start Position) token {
 			break
 		}
 	}
-	text := string(l.input[start.Offset:l.pos])
+	text := l.input[start.Offset:l.pos]
 	if err := validateJSONNumber(text); err != "" {
 		return token{
 			kind: tokError,
@@ -300,7 +300,7 @@ func scanExpPart(s string, i *int) bool {
 
 func (l *lexer) scanKeyword(expected string, kind tokenKind, start Position) token {
 	end := start.Offset + len(expected)
-	if end > len(l.input) || string(l.input[start.Offset:end]) != expected {
+	if end > len(l.input) || l.input[start.Offset:end] != expected {
 		return token{kind: tokError, text: fmt.Sprintf("expected %q", expected), pos: start, end: l.tokPos()}
 	}
 	for l.pos < end {
@@ -321,7 +321,7 @@ func (l *lexer) scanLineComment() token {
 	// Do NOT consume the \n — leave it for the whitespace scanner
 	return token{
 		kind: tokCommentLine,
-		text: string(l.input[start.Offset:l.pos]),
+		text: l.input[start.Offset:l.pos],
 		pos:  start,
 		end:  l.tokPos(),
 	}
@@ -340,7 +340,7 @@ func (l *lexer) scanBlockComment() token {
 	}
 	return token{
 		kind: tokCommentBlock,
-		text: string(l.input[start.Offset:l.pos]),
+		text: l.input[start.Offset:l.pos],
 		pos:  start,
 		end:  l.tokPos(),
 	}

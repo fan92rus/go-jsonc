@@ -10,7 +10,7 @@ import (
 
 func ExampleParse() {
 	src := `{"name": "hello", "value": 42}`
-	doc, err := jsonc.Parse([]byte(src))
+	doc, err := jsonc.Parse(src)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func ExampleParse_jsonc() {
   "name": "Alice",
   "age": 30 /* years */
 }`
-	doc, err := jsonc.Parse([]byte(src))
+	doc, err := jsonc.Parse(src)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func ExampleParse_jsonc() {
 
 func ExampleFormat() {
 	src := `{"a":1,"b":2}`
-	doc, err := jsonc.Parse([]byte(src))
+	doc, err := jsonc.Parse(src)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func ExampleFormat() {
 
 func ExampleNode_Walk() {
 	src := `[true, false, null]`
-	doc, err := jsonc.Parse([]byte(src))
+	doc, err := jsonc.Parse(src)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func ExampleNewObject() {
 
 func ExampleNode_Body() {
 	src := `{"a": 1 /* important */}`
-	doc, _ := jsonc.Parse([]byte(src))
+	doc, _ := jsonc.Parse(src)
 	for _, c := range doc.FindAllComments() {
 		fmt.Println(c.Body())
 	}
@@ -90,7 +90,7 @@ func ExampleNode_Body() {
 
 func ExampleNode_SetValue() {
 	src := `{"name": "Alice"}`
-	doc, _ := jsonc.Parse([]byte(src))
+	doc, _ := jsonc.Parse(src)
 	obj := doc.FirstChild()
 	obj.Members()[0].ValueNode().SetValue(`"Bob"`)
 	fmt.Println(jsonc.Serialize(doc))

@@ -16,7 +16,7 @@ type parser struct {
 }
 
 // Parse parses a JSONC document and returns its CST.
-func Parse(input []byte) (*Node, error) {
+func Parse(input string) (*Node, error) {
 	p := &parser{lex: newLexer(input)}
 	doc := p.parseDocument()
 	if doc == nil {
