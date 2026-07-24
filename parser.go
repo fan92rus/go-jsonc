@@ -44,9 +44,9 @@ type token struct {
 
 type lexer struct {
 	input []byte
-	pos   int    // current byte offset
-	line  int    // current line (0-based)
-	col   int    // current column (0-based)
+	pos   int // current byte offset
+	line  int // current line (0-based)
+	col   int // current column (0-based)
 }
 
 func newLexer(input []byte) *lexer {
