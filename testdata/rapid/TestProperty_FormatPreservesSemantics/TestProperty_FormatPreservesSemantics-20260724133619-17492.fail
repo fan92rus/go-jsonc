@@ -1,0 +1,44 @@
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw triviaMode: 1
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw comment: "/**/"
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw containerKind: false
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw numElems: 0
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw trailingComma: false
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw triviaMode: 0
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw ws: ""
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw triviaMode: 0
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw ws: ""
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw triviaMode: 0
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw ws: ""
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw triviaMode: 0
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] [rapid] draw ws: ""
+# 2026/07/24 13:36:19.236901 [TestProperty_FormatPreservesSemantics] Format changed semantics
+# input: "/**/[]"
+# formatted: "unexpected character at \"/\""
+# 
+v0.4.8#13809527585914134455
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

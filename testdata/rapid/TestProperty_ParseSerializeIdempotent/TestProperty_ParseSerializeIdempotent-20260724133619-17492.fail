@@ -1,0 +1,57 @@
+# 2026/07/24 13:36:19.232070 [TestProperty_ParseSerializeIdempotent] [rapid] draw triviaMode: 0
+# 2026/07/24 13:36:19.232070 [TestProperty_ParseSerializeIdempotent] [rapid] draw ws: ""
+# 2026/07/24 13:36:19.232070 [TestProperty_ParseSerializeIdempotent] [rapid] draw containerKind: false
+# 2026/07/24 13:36:19.232070 [TestProperty_ParseSerializeIdempotent] [rapid] draw numElems: 0
+# 2026/07/24 13:36:19.232070 [TestProperty_ParseSerializeIdempotent] [rapid] draw trailingComma: false
+# 2026/07/24 13:36:19.232070 [TestProperty_ParseSerializeIdempotent] [rapid] draw triviaMode: 0
+# 2026/07/24 13:36:19.232595 [TestProperty_ParseSerializeIdempotent] [rapid] draw ws: ""
+# 2026/07/24 13:36:19.232595 [TestProperty_ParseSerializeIdempotent] [rapid] draw triviaMode: 1
+# 2026/07/24 13:36:19.232595 [TestProperty_ParseSerializeIdempotent] [rapid] draw comment: "/**/"
+# 2026/07/24 13:36:19.232595 [TestProperty_ParseSerializeIdempotent] [rapid] draw triviaMode: 0
+# 2026/07/24 13:36:19.232595 [TestProperty_ParseSerializeIdempotent] [rapid] draw ws: ""
+# 2026/07/24 13:36:19.232648 [TestProperty_ParseSerializeIdempotent] [rapid] draw triviaMode: 0
+# 2026/07/24 13:36:19.232648 [TestProperty_ParseSerializeIdempotent] [rapid] draw ws: ""
+# 2026/07/24 13:36:19.232648 [TestProperty_ParseSerializeIdempotent] Not idempotent
+# input: "[/**/]"
+# serialized: "[unexpected character at \"/\"expected comma at \"/\"]"
+# doc1: Document @1:1(0)
+#   Array @1:1(0)
+#     LBracket "[" @1:1(0)
+#     Error "unexpected character at \"/\"" @1:2(1)
+#     Error "expected comma at \"/\"" @1:2(1)
+#     RBracket "]" @1:2(1)
+# 
+# doc2: Document @1:1(0)
+#   Array @1:1(0)
+#     LBracket "[" @1:1(0)
+#     Error "unexpected character at \"u\"" @1:2(1)
+#     Error "expected comma at \"u\"" @1:2(1)
+#     RBracket "]" @1:2(1)
+# 
+v0.4.8#17685917310715450107
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

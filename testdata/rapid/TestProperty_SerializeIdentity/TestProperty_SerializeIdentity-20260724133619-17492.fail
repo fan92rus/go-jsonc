@@ -1,0 +1,23 @@
+# 2026/07/24 13:36:19.226276 [TestProperty_SerializeIdentity] [rapid] draw jsonInput: "/**/{}"
+# 2026/07/24 13:36:19.226276 [TestProperty_SerializeIdentity] Serialize output produces different CST
+# input: "/**/{}"
+# output: "unexpected character at \"/\""
+# 
+v0.4.8#2665720260466225629
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
