@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+echo "🔍 Running pre-commit checks..."
+
+# --- golangci-lint (if available) ---
+if command -v golangci-lint >/dev/null 2>&1; then
+    echo "  → golangci-lint"
+    golangci-lint run ./... 2>&1 | sed 's/^/    /'
+    echo "  ✓ golangci-lint passed"
+else
+    echo "  ⚠ golangci-lint not installed — skipping"
+fi
+
+# --- go vet ---
+echo "  → go vet"
+if ! go vet ./... 2>&1 | sed 's/^/    /'; then
+    echo "  ✗ go vet failed — commit blocked"
+    exit 1
+fi
+echo "  ✓ go vet passed"
+
+# --- go test (compile check only) ---
+echo "  → go test -c (compile check)"
+if ! go test -c -o /dev/null ./... 2>&1; then
+    echo "  ✗ tests don't compile — commit blocked"
+    exit 1
+fi
+echo "  ✓ tests compile"
+
+echo "✅ All pre-commit checks passed!"
