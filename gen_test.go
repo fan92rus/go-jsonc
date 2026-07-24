@@ -9,8 +9,8 @@ import (
 	"pgregory.net/rapid"
 )
 
-// SampledFrom with >10 runes hits Go's variadic inference limit, so we use
-// Custom+IntRange+slice for large character sets.
+// All generators defined at package level to avoid rapid "group did not use
+// any data from bitstream" errors from nested Custom generators.
 
 // lettersAZ generates a-z runes.
 var lettersAZ = rapid.Custom(func(t *rapid.T) rune {
@@ -30,8 +30,9 @@ var digitsRune = rapid.Custom(func(t *rapid.T) rune {
 // alnumRune combines letters + digits.
 var alnumRune = rapid.OneOf(lettersAZ, lettersAZUp, digitsRune)
 
-// spaceRune generates ' '.
+// spaceRune generates ' ' always.
 var spaceRune = rapid.Custom(func(t *rapid.T) rune {
+	rapid.IntRange(0, 0).Draw(t, "sp") // always draw
 	return ' '
 })
 
@@ -42,6 +43,16 @@ var punctRune = rapid.Custom(func(t *rapid.T) rune {
 
 // alphaSpaceRune generates letters + space.
 var alphaSpaceRune = rapid.OneOf(lettersAZ, lettersAZUp, spaceRune)
+
+// unicodeRune generates Greek letters and symbols.
+var unicodeRune = rapid.Custom(func(t *rapid.T) rune {
+	return []rune{'α', 'β', 'γ', 'δ', 'ε', '★', '♦', '♣'}[rapid.IntRange(0, 7).Draw(t, "ui")]
+})
+
+// specialRune generates special chars that need JSON escaping.
+var specialRune = rapid.Custom(func(t *rapid.T) rune {
+	return []rune{'"', '\\', '\b', '\f', '\n', '\r', '\t', 'a', 'b', 'c', ' '}[rapid.IntRange(0, 10).Draw(t, "si")]
+})
 
 // commentSafeRune generates chars safe inside comments.
 var commentSafeRune = rapid.OneOf(lettersAZ, lettersAZUp, digitsRune,
@@ -90,7 +101,6 @@ var genJSONString = rapid.Custom(func(t *rapid.T) string {
 
 // genJSONRawString generates raw string content without quotes.
 var genJSONRawString = rapid.Custom(func(t *rapid.T) string {
-	// Always draw at least one value before returning
 	kind := rapid.IntRange(0, 8).Draw(t, "kind")
 	switch kind {
 	case 0, 1, 2, 3:
@@ -98,20 +108,11 @@ var genJSONRawString = rapid.Custom(func(t *rapid.T) string {
 	case 4, 5:
 		return rapid.StringOf(rapid.OneOf(alphaSpaceRune, punctRune)).Draw(t, "punct")
 	case 6:
-		return rapid.StringOf(
-			rapid.Custom(func(t *rapid.T) rune {
-				// Must draw at least once
-				return []rune{'α', 'β', 'γ', 'δ', 'ε', '★', '♦', '♣'}[rapid.IntRange(0, 7).Draw(t, "ui")]
-			}),
-		).Draw(t, "unicode")
+		return rapid.StringOf(unicodeRune).Draw(t, "unicode")
 	case 7:
-		return rapid.StringOf(
-			rapid.Custom(func(t *rapid.T) rune {
-				return []rune{'"', '\\', '\b', '\f', '\n', '\r', '\t', 'a', 'b', 'c', ' '}[rapid.IntRange(0, 10).Draw(t, "si")]
-			}),
-		).Draw(t, "specials")
+		return rapid.StringOf(specialRune).Draw(t, "specials")
 	case 8:
-		return "" // empty string — draws were already consumed by "kind"
+		return "" // empty — draws already consumed by "kind"
 	}
 	return ""
 })

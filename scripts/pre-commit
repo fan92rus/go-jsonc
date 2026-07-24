@@ -3,25 +3,30 @@ set -e
 
 echo "🔍 Running pre-commit checks..."
 
+# --- go vet (fastest, catches real bugs) ---
+echo "  → go vet"
+go vet ./... 2>&1 | sed 's/^/    /'
+echo "  ✓ go vet passed"
+
 # --- golangci-lint (if available) ---
 if command -v golangci-lint >/dev/null 2>&1; then
     echo "  → golangci-lint"
     golangci-lint run ./... 2>&1 | sed 's/^/    /'
+    # Check golangci-lint exit code (PIPESTATUS[0] in bash, but we're in sh)
+    # Use a temp file to capture exit code
+    golangci-lint run ./... > /tmp/golangci-lint-out.txt 2>&1
+    if [ $? -ne 0 ]; then
+        cat /tmp/golangci-lint-out.txt | sed 's/^/    /'
+        echo "  ✗ golangci-lint found issues — commit blocked"
+        exit 1
+    fi
     echo "  ✓ golangci-lint passed"
 else
     echo "  ⚠ golangci-lint not installed — skipping"
 fi
 
-# --- go vet ---
-echo "  → go vet"
-if ! go vet ./... 2>&1 | sed 's/^/    /'; then
-    echo "  ✗ go vet failed — commit blocked"
-    exit 1
-fi
-echo "  ✓ go vet passed"
-
-# --- go test (compile check only) ---
-echo "  → go test -c (compile check)"
+# --- go test compile check ---
+echo "  → go test (compile check)"
 if ! go test -c -o /dev/null ./... 2>&1; then
     echo "  ✗ tests don't compile — commit blocked"
     exit 1

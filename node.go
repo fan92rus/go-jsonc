@@ -25,6 +25,7 @@ const (
 	KindRBrace   // }
 	KindLBracket // [
 	KindRBracket // ]
+	KindEOF      // end of input
 	KindError    // parse error / unexpected token
 )
 
@@ -62,6 +63,8 @@ func (k NodeKind) String() string {
 		return "LBracket"
 	case KindRBracket:
 		return "RBracket"
+	case KindEOF:
+		return "EOF"
 	case KindError:
 		return "Error"
 	default:
@@ -182,12 +185,19 @@ func (n *Node) FindAllComments() []*Node {
 	return n.FindAll(KindComment)
 }
 
-// FirstChild returns the first child node, or nil.
+// FirstChild returns the first non-trivia child node, or nil.
+// In a CST, the first child may be whitespace or a comment;
+// FirstChild skips those and returns the first meaningful node.
 func (n *Node) FirstChild() *Node {
-	if n == nil || len(n.Children) == 0 {
+	if n == nil {
 		return nil
 	}
-	return n.Children[0]
+	for _, c := range n.Children {
+		if !c.IsTrivia() {
+			return c
+		}
+	}
+	return nil
 }
 
 // ValueNode returns the value child of a Member node, or nil.

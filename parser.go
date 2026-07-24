@@ -6,30 +6,259 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// Token types
+// ---------------------------------------------------------------------------
+
+type tokenKind int
+
+const (
+	tokEOF tokenKind = iota
+	tokError
+	tokLBrace
+	tokRBrace
+	tokLBracket
+	tokRBracket
+	tokColon
+	tokComma
+	tokString
+	tokNumber
+	tokTrue
+	tokFalse
+	tokNull
+	tokCommentLine  // // ...
+	tokCommentBlock // /* ... */
+	tokWhitespace
+)
+
+// token with proper source position.
+type token struct {
+	kind tokenKind
+	text string
+	pos  Position // start position of the token
+	end  Position // end position (exclusive)
+}
+
+// ---------------------------------------------------------------------------
+// Lexer
+// ---------------------------------------------------------------------------
+
+type lexer struct {
+	input []byte
+	pos   int    // current byte offset
+	line  int    // current line (0-based)
+	col   int    // current column (0-based)
+}
+
+func newLexer(input []byte) *lexer {
+	return &lexer{
+		input: input,
+		pos:   0,
+		line:  0,
+		col:   0,
+	}
+}
+
+func (l *lexer) tokPos() Position {
+	return Position{Offset: l.pos, Line: l.line, Column: l.col}
+}
+
+func (l *lexer) advance() byte {
+	c := l.input[l.pos]
+	if c == '\n' {
+		l.line++
+		l.col = 0
+	} else {
+		l.col++
+	}
+	l.pos++
+	return c
+}
+
+func (l *lexer) peek() byte {
+	if l.pos >= len(l.input) {
+		return 0
+	}
+	return l.input[l.pos]
+}
+
+// next returns the next token from the input.
+func (l *lexer) next() token {
+	// Whitespace and comments are always scanned as separate tokens
+	for l.pos < len(l.input) {
+		c := l.peek()
+		switch {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			return l.scanWhitespace()
+		case c == '/':
+			if l.pos+1 < len(l.input) {
+				next := l.input[l.pos+1]
+				if next == '/' {
+					return l.scanLineComment()
+				}
+				if next == '*' {
+					return l.scanBlockComment()
+				}
+			}
+			return l.errorToken("unexpected character '/'")
+		default:
+			goto scanValue
+		}
+	}
+scanValue:
+	if l.pos >= len(l.input) {
+		return token{kind: tokEOF, pos: l.tokPos(), end: l.tokPos()}
+	}
+
+	start := l.tokPos()
+	c := l.advance()
+
+	switch {
+	case c == '{':
+		return token{kind: tokLBrace, text: "{", pos: start, end: l.tokPos()}
+	case c == '}':
+		return token{kind: tokRBrace, text: "}", pos: start, end: l.tokPos()}
+	case c == '[':
+		return token{kind: tokLBracket, text: "[", pos: start, end: l.tokPos()}
+	case c == ']':
+		return token{kind: tokRBracket, text: "]", pos: start, end: l.tokPos()}
+	case c == ':':
+		return token{kind: tokColon, text: ":", pos: start, end: l.tokPos()}
+	case c == ',':
+		return token{kind: tokComma, text: ",", pos: start, end: l.tokPos()}
+	case c == '"':
+		return l.scanString(start)
+	case c == 't':
+		return l.scanKeyword("true", tokTrue, start)
+	case c == 'f':
+		return l.scanKeyword("false", tokFalse, start)
+	case c == 'n':
+		return l.scanKeyword("null", tokNull, start)
+	case c == '-' || c == '+' || (c >= '0' && c <= '9'):
+		return l.scanNumber(start)
+	default:
+		return l.errorToken(fmt.Sprintf("unexpected character %q", c))
+	}
+}
+
+func (l *lexer) scanWhitespace() token {
+	start := l.tokPos()
+	for l.pos < len(l.input) {
+		c := l.peek()
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			l.advance()
+		} else {
+			break
+		}
+	}
+	return token{
+		kind: tokWhitespace,
+		text: string(l.input[start.Offset:l.pos]),
+		pos:  start,
+		end:  l.tokPos(),
+	}
+}
+
+func (l *lexer) scanString(start Position) token {
+	for l.pos < len(l.input) {
+		c := l.advance()
+		if c == '"' {
+			return token{
+				kind: tokString,
+				text: string(l.input[start.Offset:l.pos]),
+				pos:  start,
+				end:  l.tokPos(),
+			}
+		}
+		if c == '\\' && l.pos < len(l.input) {
+			l.advance()
+		}
+	}
+	return token{kind: tokError, text: "unterminated string", pos: start, end: l.tokPos()}
+}
+
+func (l *lexer) scanNumber(start Position) token {
+	for l.pos < len(l.input) {
+		c := l.input[l.pos]
+		if c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || (c >= '0' && c <= '9') {
+			l.advance()
+		} else {
+			break
+		}
+	}
+	return token{
+		kind: tokNumber,
+		text: string(l.input[start.Offset:l.pos]),
+		pos:  start,
+		end:  l.tokPos(),
+	}
+}
+
+func (l *lexer) scanKeyword(expected string, kind tokenKind, start Position) token {
+	end := start.Offset + len(expected)
+	if end > len(l.input) || string(l.input[start.Offset:end]) != expected {
+		return token{kind: tokError, text: fmt.Sprintf("expected %q", expected), pos: start, end: l.tokPos()}
+	}
+	for l.pos < end {
+		l.advance()
+	}
+	return token{kind: kind, text: expected, pos: start, end: l.tokPos()}
+}
+
+func (l *lexer) scanLineComment() token {
+	start := l.tokPos()
+	l.advance() // first /
+	l.advance() // second /
+	// Consume until newline or EOF — stop BEFORE consuming the newline
+	// so the newline can be its own whitespace token.
+	for l.pos < len(l.input) && l.input[l.pos] != '\n' {
+		l.advance()
+	}
+	// Do NOT consume the \n — leave it for the whitespace scanner
+	return token{
+		kind: tokCommentLine,
+		text: string(l.input[start.Offset:l.pos]),
+		pos:  start,
+		end:  l.tokPos(),
+	}
+}
+
+func (l *lexer) scanBlockComment() token {
+	start := l.tokPos()
+	l.advance() // /
+	l.advance() // *
+	for l.pos < len(l.input) {
+		c := l.advance()
+		if c == '*' && l.pos < len(l.input) && l.input[l.pos] == '/' {
+			l.advance() // /
+			break
+		}
+	}
+	return token{
+		kind: tokCommentBlock,
+		text: string(l.input[start.Offset:l.pos]),
+		pos:  start,
+		end:  l.tokPos(),
+	}
+}
+
+func (l *lexer) errorToken(msg string) token {
+	pos := l.tokPos()
+	return token{kind: tokError, text: msg, pos: pos, end: pos}
+}
+
+// ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
 
-// Parser converts JSONC source text into a Concrete Syntax Tree.
-//
-// The parser preserves ALL input tokens including comments and whitespace,
-// enabling lossless round-trip and comment-aware formatting.
-type Parser struct {
-	input []byte
-	pos   int // current byte offset
-
-	// Token tracking
-	tokens []*Node
-	err    error
+type parser struct {
+	lex    *lexer
+	tokens []token
+	pos    int // position in token buffer
 }
 
-// Parse parses a JSONC document and returns its Concrete Syntax Tree.
-// Returns an error only when the input is structurally invalid.
+// Parse parses a JSONC document and returns its CST.
 func Parse(input []byte) (*Node, error) {
-	p := &Parser{
-		input: input,
-		pos:   0,
-	}
-
+	p := &parser{lex: newLexer(input)}
 	doc := p.parseDocument()
 	if doc == nil {
 		return nil, fmt.Errorf("parse failed")
@@ -37,407 +266,224 @@ func Parse(input []byte) (*Node, error) {
 	return doc, nil
 }
 
-// parseDocument parses the root JSONC document.
-func (p *Parser) parseDocument() *Node {
-	doc := &Node{
-		Kind: KindDocument,
-		Start: Position{
-			Offset: 0,
-			Line:   0,
-			Column: 0,
-		},
+func (p *parser) peek() token {
+	if p.pos >= len(p.tokens) {
+		tok := p.lex.next()
+		p.tokens = append(p.tokens, tok)
 	}
-	doc.End = Position{
-		Offset: len(p.input),
-		Line:   0,
-		Column: len(p.input),
+	return p.tokens[p.pos]
+}
+
+func (p *parser) advance() token {
+	tok := p.peek()
+	p.pos++
+	return tok
+}
+
+func (p *parser) parseDocument() *Node {
+	doc := &Node{Kind: KindDocument, Start: Position{Offset: 0}}
+	// Consume all tokens until EOF
+	for p.peek().kind != tokEOF {
+		tok := p.peek()
+		switch tok.kind {
+		case tokLBrace:
+			doc.Children = append(doc.Children, p.parseObject())
+		case tokLBracket:
+			doc.Children = append(doc.Children, p.parseArray())
+		case tokCommentLine, tokCommentBlock, tokWhitespace:
+			doc.Children = append(doc.Children, p.tokToNode(p.advance()))
+		default:
+			// Single top-level value
+			val := p.parseValue()
+			if val != nil {
+				doc.Children = append(doc.Children, val)
+			} else {
+				doc.Children = append(doc.Children, p.tokToNode(p.advance()))
+			}
+		}
 	}
-
-	// Consume any leading trivia
-	p.skipTrivia()
-
-	if p.pos >= len(p.input) {
-		// Empty/whitespace-only input
-		return doc
+	if len(p.lex.input) > 0 {
+		doc.End = Position{Offset: len(p.lex.input)}
 	}
-
-	// Parse the value
-	val := p.parseValue()
-	if val != nil {
-		doc.Children = append(doc.Children, val)
-	}
-
-	// Consume trailing trivia
-	p.skipTrivia()
-
-	// Set proper end
-	doc.End = p.position()
-
 	return doc
 }
 
-// skipTrivia consumes whitespace and comments at the current position.
-func (p *Parser) skipTrivia() {
-	for p.pos < len(p.input) {
-		c := p.input[p.pos]
-		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
-			p.pos++
-		case c == '/' && p.pos+1 < len(p.input):
-			next := p.input[p.pos+1]
-			if next == '/' || next == '*' {
-				return // let comment be parsed as a real node
-			}
-			p.pos++ // standalone /, consume as error
-		default:
-			return
-		}
-	}
-}
-
-func (p *Parser) position() Position {
-	// Simplified: approximate position
-	return Position{
-		Offset: p.pos,
-		Line:   0,
-		Column: p.pos,
-	}
-}
-
-func (p *Parser) peek() byte {
-	if p.pos >= len(p.input) {
-		return 0
-	}
-	return p.input[p.pos]
-}
-
-func (p *Parser) advance() byte {
-	c := p.input[p.pos]
-	p.pos++
-	return c
-}
-
-// parseValue dispatches to the appropriate value parser based on the current token.
-func (p *Parser) parseValue() *Node {
-	p.skipTrivia()
-	if p.pos >= len(p.input) {
-		return nil
-	}
-
-	c := p.peek()
-	switch {
-	case c == '{':
+func (p *parser) parseValue() *Node {
+	tok := p.peek()
+	switch tok.kind {
+	case tokLBrace:
 		return p.parseObject()
-	case c == '[':
+	case tokLBracket:
 		return p.parseArray()
-	case c == '"':
-		return p.parseString()
-	case c == 't':
-		return p.parseKeyword("true", KindBoolean)
-	case c == 'f':
-		return p.parseKeyword("false", KindBoolean)
-	case c == 'n':
-		return p.parseKeyword("null", KindNull)
-	case c == '-' || c == '+' || (c >= '0' && c <= '9'):
-		return p.parseNumber()
+	case tokString, tokNumber, tokTrue, tokFalse, tokNull:
+		return p.tokToNode(p.advance())
+	case tokEOF:
+		return nil
 	default:
-		return p.parseError("unexpected character")
-	}
-}
-
-func (p *Parser) parseObject() *Node {
-	start := p.pos
-	obj := &Node{
-		Kind: KindObject,
-		Start: Position{
-			Offset: start,
-			Line:   0,
-			Column: start,
-		},
-	}
-
-	// {
-	lBrace := &Node{
-		Kind:  KindLBrace,
-		Value: "{",
-		Start: Position{Offset: start, Line: 0, Column: start},
-		End:   Position{Offset: start + 1, Line: 0, Column: start + 1},
-	}
-	obj.Children = append(obj.Children, lBrace)
-	p.advance() // consume {
-	p.skipTrivia()
-
-	// Parse members
-	first := true
-	for p.pos < len(p.input) && p.peek() != '}' {
-		if !first {
-			p.skipTrivia()
-			if p.pos >= len(p.input) || p.peek() == '}' {
-				break
-			}
-			if p.peek() != ',' {
-				obj.Children = append(obj.Children, p.parseError("expected comma"))
-				break
-			}
-			comma := &Node{
-				Kind:  KindComma,
-				Value: ",",
-				Start: p.position(),
-				End:   p.advancePos(),
-			}
-			obj.Children = append(obj.Children, comma)
-			p.skipTrivia()
-			if p.peek() == '}' {
-				// Trailing comma — allow in JSONC
-				break
-			}
-		}
-		first = false
-
-		member := p.parseMember()
-		if member != nil {
-			obj.Children = append(obj.Children, member)
-		}
-		p.skipTrivia()
-	}
-
-	if p.pos >= len(p.input) {
-		obj.End = p.position()
-		return obj
-	}
-
-	// }
-	rBrace := &Node{
-		Kind:  KindRBrace,
-		Value: "}",
-		Start: p.position(),
-		End:   p.advancePos(),
-	}
-	obj.Children = append(obj.Children, rBrace)
-
-	obj.End = Position{
-		Offset: p.pos,
-		Line:   0,
-		Column: p.pos,
-	}
-
-	return obj
-}
-
-func (p *Parser) parseArray() *Node {
-	start := p.pos
-	arr := &Node{
-		Kind: KindArray,
-		Start: Position{
-			Offset: start,
-			Line:   0,
-			Column: start,
-		},
-	}
-
-	lBracket := &Node{
-		Kind:  KindLBracket,
-		Value: "[",
-		Start: Position{Offset: start, Line: 0, Column: start},
-		End:   Position{Offset: start + 1, Line: 0, Column: start + 1},
-	}
-	arr.Children = append(arr.Children, lBracket)
-	p.advance() // consume [
-	p.skipTrivia()
-
-	first := true
-	for p.pos < len(p.input) && p.peek() != ']' {
-		if !first {
-			p.skipTrivia()
-			if p.pos >= len(p.input) || p.peek() == ']' {
-				break
-			}
-			if p.peek() != ',' {
-				arr.Children = append(arr.Children, p.parseError("expected comma"))
-				break
-			}
-			comma := &Node{
-				Kind:  KindComma,
-				Value: ",",
-				Start: p.position(),
-				End:   p.advancePos(),
-			}
-			arr.Children = append(arr.Children, comma)
-			p.skipTrivia()
-			if p.peek() == ']' {
-				// Trailing comma
-				break
-			}
-		}
-		first = false
-
-		val := p.parseValue()
-		if val != nil {
-			arr.Children = append(arr.Children, val)
-		}
-		p.skipTrivia()
-	}
-
-	if p.pos >= len(p.input) {
-		arr.End = p.position()
-		return arr
-	}
-
-	// ]
-	rBracket := &Node{
-		Kind:  KindRBracket,
-		Value: "]",
-		Start: p.position(),
-		End:   p.advancePos(),
-	}
-	arr.Children = append(arr.Children, rBracket)
-
-	arr.End = Position{
-		Offset: p.pos,
-		Line:   0,
-		Column: p.pos,
-	}
-
-	return arr
-}
-
-func (p *Parser) parseMember() *Node {
-	p.skipTrivia()
-	if p.pos >= len(p.input) {
 		return nil
 	}
+}
 
-	if p.peek() != '"' {
-		return p.parseError("expected string key")
-	}
+func (p *parser) parseObject() *Node {
+	obj := &Node{Kind: KindObject}
+	obj.Children = append(obj.Children, p.tokToNode(p.advance())) // {
 
-	member := &Node{
-		Kind: KindMember,
-	}
-
-	key := p.parseString()
-	if key == nil {
-		return nil
-	}
-	member.Children = append(member.Children, key)
-
-	p.skipTrivia()
-
-	// :
-	if p.peek() == ':' {
-		colon := &Node{
-			Kind:  KindColon,
-			Value: ":",
-			Start: p.position(),
-			End:   p.advancePos(),
+	for {
+		tok := p.peek()
+		switch {
+		case tok.kind == tokEOF:
+			obj.End = Position{Offset: len(p.lex.input)}
+			return obj
+		case tok.kind == tokRBrace:
+			obj.Children = append(obj.Children, p.tokToNode(p.advance()))
+			obj.Start = obj.Children[0].Start
+			obj.End = obj.Children[len(obj.Children)-1].End
+			return obj
+		case tok.kind == tokWhitespace || tok.kind == tokCommentLine || tok.kind == tokCommentBlock:
+			obj.Children = append(obj.Children, p.tokToNode(p.advance()))
+		case tok.kind == tokComma:
+			obj.Children = append(obj.Children, p.tokToNode(p.advance()))
+		case tok.kind == tokString:
+			member := p.parseMember()
+			if member != nil {
+				obj.Children = append(obj.Children, member)
+			}
+		default:
+			obj.Children = append(obj.Children, p.errNode("expected key or }"))
+			obj.End = Position{Offset: len(p.lex.input)}
+			return obj
 		}
-		member.Children = append(member.Children, colon)
+	}
+}
+
+func (p *parser) parseMember() *Node {
+	member := &Node{Kind: KindMember}
+	member.Children = append(member.Children, p.tokToNode(p.advance())) // key
+
+	// Skip trivia before colon
+	for p.peek().kind == tokWhitespace || p.peek().kind == tokCommentLine || p.peek().kind == tokCommentBlock {
+		member.Children = append(member.Children, p.tokToNode(p.advance()))
+	}
+
+	// Colon
+	if p.peek().kind == tokColon {
+		member.Children = append(member.Children, p.tokToNode(p.advance()))
 	} else {
-		member.Children = append(member.Children, p.parseError("expected colon"))
+		member.Children = append(member.Children, p.errNode("expected :"))
+		return member
 	}
 
-	p.skipTrivia()
+	// Skip trivia after colon
+	for p.peek().kind == tokWhitespace || p.peek().kind == tokCommentLine || p.peek().kind == tokCommentBlock {
+		member.Children = append(member.Children, p.tokToNode(p.advance()))
+	}
 
+	// Value
 	val := p.parseValue()
 	if val != nil {
 		member.Children = append(member.Children, val)
+	} else {
+		member.Children = append(member.Children, p.errNode("expected value"))
 	}
 
-	member.Start = key.Start
-	if val != nil {
-		member.End = val.End
-	}
-
+	member.Start = member.Children[0].Start
+	member.End = member.Children[len(member.Children)-1].End
 	return member
 }
 
-func (p *Parser) parseString() *Node {
-	if p.peek() != '"' {
-		return nil
-	}
-	start := p.pos
-	startPos := p.position()
+func (p *parser) parseArray() *Node {
+	arr := &Node{Kind: KindArray}
+	arr.Children = append(arr.Children, p.tokToNode(p.advance())) // [
 
-	p.advance() // consume opening quote
-
-	for p.pos < len(p.input) {
-		c := p.advance()
-		if c == '"' {
-			break
+	for {
+		tok := p.peek()
+		switch {
+		case tok.kind == tokEOF:
+			arr.End = Position{Offset: len(p.lex.input)}
+			return arr
+		case tok.kind == tokRBracket:
+			arr.Children = append(arr.Children, p.tokToNode(p.advance()))
+			arr.Start = arr.Children[0].Start
+			arr.End = arr.Children[len(arr.Children)-1].End
+			return arr
+		case tok.kind == tokWhitespace || tok.kind == tokCommentLine || tok.kind == tokCommentBlock:
+			arr.Children = append(arr.Children, p.tokToNode(p.advance()))
+		case tok.kind == tokComma:
+			arr.Children = append(arr.Children, p.tokToNode(p.advance()))
+		default:
+			val := p.parseValue()
+			if val != nil {
+				arr.Children = append(arr.Children, val)
+			} else if tok.kind == tokError {
+				arr.Children = append(arr.Children, p.errNode(tok.text))
+				p.advance()
+			} else {
+				arr.Children = append(arr.Children, p.errNode("expected value or ]"))
+				return arr
+			}
 		}
-		if c == '\\' && p.pos < len(p.input) {
-			p.advance() // consume escaped character
-		}
-	}
-
-	endPos := p.position()
-
-	return &Node{
-		Kind:  KindString,
-		Value: string(p.input[start:p.pos]),
-		Start: startPos,
-		End:   endPos,
 	}
 }
 
-func (p *Parser) parseNumber() *Node {
-	start := p.pos
-	startPos := p.position()
-
-	for p.pos < len(p.input) {
-		c := p.input[p.pos]
-		if c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' || (c >= '0' && c <= '9') {
-			p.pos++
-		} else {
-			break
-		}
+func (p *parser) tokToNode(tok token) *Node {
+	n := &Node{
+		Value: tok.text,
+		Start: tok.pos,
+		End:   tok.end,
 	}
-
-	return &Node{
-		Kind:  KindNumber,
-		Value: string(p.input[start:p.pos]),
-		Start: startPos,
-		End:   p.position(),
+	switch tok.kind {
+	case tokLBrace:
+		n.Kind = KindLBrace
+	case tokRBrace:
+		n.Kind = KindRBrace
+	case tokLBracket:
+		n.Kind = KindLBracket
+	case tokRBracket:
+		n.Kind = KindRBracket
+	case tokColon:
+		n.Kind = KindColon
+	case tokComma:
+		n.Kind = KindComma
+	case tokString:
+		n.Kind = KindString
+	case tokNumber:
+		n.Kind = KindNumber
+	case tokTrue, tokFalse:
+		n.Kind = KindBoolean
+	case tokNull:
+		n.Kind = KindNull
+	case tokWhitespace:
+		n.Kind = KindWhitespace
+	case tokCommentLine:
+		n.Kind = KindComment
+		n.CommentStyle = CommentLine
+		body := strings.TrimPrefix(tok.text, "//")
+		body = strings.TrimPrefix(body, " ")
+		n.CommentBody = strings.TrimRight(body, "\n\r")
+	case tokCommentBlock:
+		n.Kind = KindComment
+		n.CommentStyle = CommentBlock
+		body := strings.TrimPrefix(tok.text, "/*")
+		body = strings.TrimSuffix(body, "*/")
+		n.CommentBody = strings.TrimSpace(body)
+	case tokError:
+		n.Kind = KindError
 	}
+	return n
 }
 
-func (p *Parser) parseKeyword(expected string, kind NodeKind) *Node {
-	start := p.pos
-	startPos := p.position()
-
-	end := start + len(expected)
-	if end > len(p.input) || string(p.input[start:end]) != expected {
-		return p.parseError("expected " + expected)
-	}
-
-	p.pos = end
-
+func (p *parser) errNode(msg string) *Node {
 	return &Node{
-		Kind:  kind,
-		Value: expected,
-		Start: startPos,
-		End:   p.position(),
-	}
-}
-
-func (p *Parser) parseError(msg string) *Node {
-	errNode := &Node{
 		Kind:  KindError,
 		Value: msg,
-		Start: p.position(),
-		End:   p.position(),
+		Start: Position{Offset: p.pos},
+		End:   Position{Offset: p.pos},
 	}
-	if p.pos < len(p.input) {
-		errNode.Value = fmt.Sprintf("%s at %q", msg, string(p.input[p.pos]))
-	}
-	return errNode
 }
 
-func (p *Parser) advancePos() Position {
-	old := p.position()
-	p.advance()
-	return old
-}
+// ---------------------------------------------------------------------------
+// Serialization
+// ---------------------------------------------------------------------------
 
 // Serialize converts a CST back to its source text.
 func Serialize(doc *Node) string {
@@ -462,17 +508,21 @@ func serializeNode(n *Node, sb *strings.Builder) {
 	}
 }
 
-// FormatOptions controls the behaviour of the pretty-printer.
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
+
+// FormatOptions controls pretty-printing behaviour.
 type FormatOptions struct {
 	Indent string // indent string (default: two spaces)
 }
 
-// Format pretty-prints a CST using the specified formatting options.
+// Format pretty-prints a CST.
 func Format(doc *Node, opts *FormatOptions) string {
 	if doc == nil {
 		return ""
 	}
-	if opts == nil {
+	if opts == nil || opts.Indent == "" {
 		opts = &FormatOptions{Indent: "  "}
 	}
 	var sb strings.Builder
@@ -493,7 +543,7 @@ func formatNode(n *Node, sb *strings.Builder, opts *FormatOptions, depth int) {
 	}
 }
 
-// Verify the API compiles
+// Exported API verification
 var (
 	_ = Parse
 	_ = Serialize
